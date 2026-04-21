@@ -1,0 +1,36 @@
+/*
+ * AeorDB Design Tokens
+ * Shared between the server portal and client application.
+ * This is the single source of truth for colors, fonts, and spacing.
+ */
+
+:root {
+  /* Backgrounds */
+  --bg-primary:    #0d1117;
+  --bg-secondary:  #161b22;
+  --bg-tertiary:   #21262d;
+
+  /* Borders */
+  --border:        #30363d;
+
+  /* Text */
+  --text-primary:  #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:    #484f58;
+
+  /* Brand */
+  --accent:        #f97316;
+  --accent-hover:  #fb923c;
+
+  /* Status */
+  --success:       #3fb950;
+  --warning:       #d29922;
+  --error:         #f85149;
+
+  /* Typography */
+  --font-sans:     'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:     'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+
+  /* Spacing */
+  --radius:        6px;
+}
