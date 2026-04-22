@@ -97,6 +97,10 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     }
   }
 
+  previewActions(entry) {
+    return '<button class="primary small" data-action="download">Download</button>';
+  }
+
   // ---------------------------------------------------------------------------
   // Override: prevent closing the last tab
   // ---------------------------------------------------------------------------

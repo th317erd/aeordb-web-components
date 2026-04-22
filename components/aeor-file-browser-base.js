@@ -6,8 +6,32 @@ import {
   ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 
+// Content types that should be routed to an existing preview component
+// instead of relying on the dynamic import cascade.
+const PREVIEW_OVERRIDES = {
+  'application/json':       'aeor-preview-text',
+  'application/xml':        'aeor-preview-text',
+  'application/yaml':       'aeor-preview-text',
+  'application/javascript': 'aeor-preview-text',
+  'application/typescript':  'aeor-preview-text',
+  'application/x-sh':       'aeor-preview-text',
+  'application/sql':        'aeor-preview-text',
+  'application/toml':       'aeor-preview-text',
+};
+
 async function loadPreviewComponent(contentType) {
   if (!contentType) return 'aeor-preview-default';
+
+  // Check explicit overrides first
+  if (PREVIEW_OVERRIDES[contentType]) {
+    const name = PREVIEW_OVERRIDES[contentType];
+    try {
+      await import(`./previews/${name}.js`);
+      if (customElements.get(name)) return name;
+    } catch (error) {
+      // fall through to normal cascade
+    }
+  }
 
   const [group, subtype] = contentType.split('/');
   const sanitizedSubtype = (subtype || '').replace(/[^a-z0-9]/g, '-');
@@ -104,6 +128,14 @@ class AeorFileBrowserBase extends HTMLElement {
    */
   async getPreviewSrc(path, contentType) {
     return this.fileUrl(path);
+  }
+
+  /**
+   * Extra HTML for preview action buttons. Override in subclasses to add
+   * buttons like "Download" or "Open Locally". Default: none.
+   */
+  previewActions(entry) {
+    return '';
   }
 
   // -------------------------------------------------------------------------
@@ -375,8 +407,10 @@ class AeorFileBrowserBase extends HTMLElement {
     titleInput.value = entry.name;
     titleInput.dataset.original = entry.name;
 
-    // Update action buttons
+    // Update action buttons — subclasses can inject extra buttons via previewActions()
+    const extraActions = this.previewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
+      ${extraActions}
       <button class="danger small" data-action="delete">Delete</button>
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
