@@ -182,6 +182,8 @@ class AeorFileBrowserBase extends HTMLElement {
         preview_entry:     null,
         preview_component: null,
         preview_height:    tab.preview_height || null,
+        selectedEntries:   new Set(),
+        lastSelectedIndex: -1,
       }));
     } catch (error) {
       // start fresh
@@ -523,17 +525,51 @@ class AeorFileBrowserBase extends HTMLElement {
       });
     });
 
-    // File entries (both list rows and grid cards)
+    // File entries (both list rows and grid cards) — with multi-select
     container.querySelectorAll('.file-entry').forEach((el) => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (event) => {
+        const entryName = el.dataset.name;
         const entryType = parseInt(el.dataset.type, 10);
-        if (entryType === ENTRY_TYPE_DIR) {
-          const newPath = tab.path.replace(/\/$/, '') + '/' + el.dataset.name + '/';
-          this._navigateTo(newPath);
-        } else {
-          tab.preview_entry = tab.entries.find((e) => e.name === el.dataset.name) || null;
+        const entryIndex = tab.entries.findIndex((e) => e.name === entryName);
+        const isCtrl = event.ctrlKey || event.metaKey;
+        const isShift = event.shiftKey;
+
+        if (!isCtrl && !isShift) {
+          // Plain click — navigate directory or single-select file
+          if (entryType === ENTRY_TYPE_DIR) {
+            const newPath = tab.path.replace(/\/$/, '') + '/' + entryName + '/';
+            this._navigateTo(newPath);
+            return;
+          }
+          tab.selectedEntries.clear();
+          tab.selectedEntries.add(entryName);
+          tab.lastSelectedIndex = entryIndex;
+          this._updateSelectionVisual(tab);
+
+          // Preview the single file
+          tab.preview_entry = tab.entries.find((e) => e.name === entryName) || null;
           tab.preview_component = null;
           this._loadPreview();
+        } else if (isCtrl) {
+          // Ctrl+Click — toggle individual entry
+          if (tab.selectedEntries.has(entryName))
+            tab.selectedEntries.delete(entryName);
+          else
+            tab.selectedEntries.add(entryName);
+
+          tab.lastSelectedIndex = entryIndex;
+          this._updateSelectionVisual(tab);
+        } else if (isShift) {
+          // Shift+Click — range select
+          const anchor = (tab.lastSelectedIndex >= 0) ? tab.lastSelectedIndex : 0;
+          const start = Math.min(anchor, entryIndex);
+          const end = Math.max(anchor, entryIndex);
+
+          for (let i = start; i <= end; i++) {
+            if (tab.entries[i])
+              tab.selectedEntries.add(tab.entries[i].name);
+          }
+          this._updateSelectionVisual(tab);
         }
       });
 
@@ -549,6 +585,32 @@ class AeorFileBrowserBase extends HTMLElement {
         this._showContextMenu(event.clientX, event.clientY, entry);
       });
     });
+
+    // Keyboard: Ctrl+A to select all, Escape to clear
+    this.setAttribute('tabindex', '0');
+    const keydownHandler = (event) => {
+      if (tab.id !== this._active_tab_id) return;
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+        event.preventDefault();
+        for (const entry of tab.entries)
+          tab.selectedEntries.add(entry.name);
+
+        if (tab.entries.length > 0)
+          tab.lastSelectedIndex = tab.entries.length - 1;
+
+        this._updateSelectionVisual(tab);
+      } else if (event.key === 'Escape') {
+        if (tab.selectedEntries.size > 0)
+          this._clearSelection(tab);
+      }
+    };
+
+    if (this._keydownHandler)
+      this.removeEventListener('keydown', this._keydownHandler);
+
+    this._keydownHandler = keydownHandler;
+    this.addEventListener('keydown', keydownHandler);
 
     // Upload
     const uploadButton = container.querySelector('.upload-button');
@@ -607,6 +669,8 @@ class AeorFileBrowserBase extends HTMLElement {
       preview_entry:     null,
       preview_component: null,
       preview_height:    null,
+      selectedEntries:   new Set(),
+      lastSelectedIndex: -1,
     });
     this._active_tab_id = tabId;
     this._saveState();
@@ -669,6 +733,8 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab) return;
     tab.path = path;
     tab.preview_entry = null;
+    tab.selectedEntries.clear();
+    tab.lastSelectedIndex = -1;
     this._saveState();
     // Update tab bar label (breadcrumb changed)
     this._updateTabBarLabel(tab);
@@ -680,6 +746,98 @@ class AeorFileBrowserBase extends HTMLElement {
     if (tabEl) {
       tabEl.textContent = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Multi-select
+  // -------------------------------------------------------------------------
+
+  _updateSelectionVisual(tab) {
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    if (!container) return;
+
+    // Toggle .selected class on file entries
+    container.querySelectorAll('.file-entry').forEach((el) => {
+      if (tab.selectedEntries.has(el.dataset.name))
+        el.classList.add('selected');
+      else
+        el.classList.remove('selected');
+    });
+
+    // Selection bar
+    let selectionBar = container.querySelector('.selection-bar');
+    if (tab.selectedEntries.size > 0) {
+      if (!selectionBar) {
+        selectionBar = document.createElement('div');
+        selectionBar.className = 'selection-bar';
+        const listing = container.querySelector('.tab-listing');
+        if (listing)
+          listing.parentNode.insertBefore(selectionBar, listing);
+      }
+      const count = tab.selectedEntries.size;
+      const extraActions = this.selectionActions(tab) || '';
+      selectionBar.innerHTML =
+        `<span class="selection-count">${count} selected</span>` +
+        `${extraActions}` +
+        '<button class="secondary small selection-clear">Clear</button>' +
+        '<button class="danger small selection-delete">Delete Selected</button>';
+
+      selectionBar.querySelector('.selection-clear').addEventListener('click', () => {
+        this._clearSelection(tab);
+      });
+      selectionBar.querySelector('.selection-delete').addEventListener('click', () => {
+        this._deleteSelected();
+      });
+      this._bindSelectionBarExtra(selectionBar, tab);
+    } else if (selectionBar) {
+      selectionBar.remove();
+    }
+  }
+
+  _clearSelection(tab) {
+    tab.selectedEntries.clear();
+    tab.lastSelectedIndex = -1;
+    this._updateSelectionVisual(tab);
+  }
+
+  async _deleteSelected() {
+    const tab = this._activeTab();
+    if (!tab || tab.selectedEntries.size === 0) return;
+
+    const count = tab.selectedEntries.size;
+    if (!confirm(`Delete ${count} item${(count > 1) ? 's' : ''}? This cannot be undone.`))
+      return;
+
+    const names = [...tab.selectedEntries];
+    for (const name of names) {
+      const filePath = tab.path.replace(/\/$/, '') + '/' + name;
+      try {
+        await this.deletePath(filePath);
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast(`Delete failed for ${name}: ${error.message}`, 'error');
+      }
+    }
+
+    tab.selectedEntries.clear();
+    tab.lastSelectedIndex = -1;
+    tab.preview_entry = null;
+    this._fetchListing();
+  }
+
+  /**
+   * Extra HTML for the selection bar. Override in subclasses to add buttons
+   * like "Download ZIP". Default: none.
+   */
+  selectionActions(tab) {
+    return '';
+  }
+
+  /**
+   * Bind event handlers for extra selection bar buttons. Override in subclasses.
+   */
+  _bindSelectionBarExtra(selectionBar, tab) {
+    // default: no extra bindings
   }
 
   // -------------------------------------------------------------------------

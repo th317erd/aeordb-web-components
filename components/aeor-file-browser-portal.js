@@ -101,6 +101,17 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     return '<button class="primary small" data-action="download">Download</button>';
   }
 
+  selectionActions(tab) {
+    return '<button class="primary small selection-download-zip">Download ZIP</button>';
+  }
+
+  _bindSelectionBarExtra(selectionBar, tab) {
+    const zipBtn = selectionBar.querySelector('.selection-download-zip');
+    if (zipBtn) {
+      zipBtn.addEventListener('click', () => this._downloadSelectedAsZip());
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Override: prevent closing the last tab
   // ---------------------------------------------------------------------------
@@ -125,16 +136,25 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   // Portal-specific: download button instead of drag-out
   // ---------------------------------------------------------------------------
 
-  _handlePreviewAction(action) {
+  async _handlePreviewAction(action) {
     if (action === 'download') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
       const filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
-      // Direct download via the file URL
-      const link = document.createElement('a');
-      link.href = this.fileUrl(filePath);
-      link.download = tab.preview_entry.name;
-      link.click();
+      try {
+        // Fetch with auth, then download via blob URL
+        const response = await window.api(this.fileUrl(filePath));
+        if (!response.ok) throw new Error(`${response.status}`);
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = tab.preview_entry.name;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Download failed: ' + error.message, 'error');
+      }
       return;
     }
     if (action === 'download-zip') {
@@ -148,10 +168,9 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     const tab = this._activeTab();
     if (!tab) return;
 
-    // Collect selected entries or all entries if none selected
-    const paths = tab.entries
-      .filter((entry) => entry._selected)
-      .map((entry) => tab.path.replace(/\/$/, '') + '/' + entry.name);
+    // Collect selected entries
+    const paths = [...tab.selectedEntries]
+      .map((name) => tab.path.replace(/\/$/, '') + '/' + name);
 
     if (paths.length === 0) return;
 
