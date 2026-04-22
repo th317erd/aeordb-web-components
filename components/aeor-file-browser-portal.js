@@ -168,9 +168,8 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     const tab = this._activeTab();
     if (!tab) return;
 
-    // Collect selected entries
-    const paths = [...tab.selectedEntries]
-      .map((name) => tab.path.replace(/\/$/, '') + '/' + name);
+    // selectedEntries already contains full paths
+    const paths = [...tab.selectedEntries];
 
     if (paths.length === 0) return;
 

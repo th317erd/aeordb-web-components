@@ -183,7 +183,7 @@ class AeorFileBrowserBase extends HTMLElement {
         preview_component: null,
         preview_height:    tab.preview_height || null,
         selectedEntries:   new Set(),
-        lastSelectedIndex: -1,
+        lastSelectedAnchor: null,
       }));
     } catch (error) {
       // start fresh
@@ -273,12 +273,15 @@ class AeorFileBrowserBase extends HTMLElement {
       </div>
     `;
 
+    // Selection bar — always present to avoid layout shift, hidden when empty
+    const selectionBarHtml = '<div class="selection-bar" style="visibility: hidden;">&nbsp;</div>';
+
     if (tab.loading) {
-      return `${header}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
+      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
     }
 
     if (tab.entries.length === 0) {
-      return `${header}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
+      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
     }
 
     const countText = (tab.total != null)
@@ -292,7 +295,7 @@ class AeorFileBrowserBase extends HTMLElement {
       ? this._renderGridViewFor(tab)
       : this._renderListViewFor(tab);
 
-    return `${header}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
+    return `${header}${selectionBarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
       <div class="preview-panel" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
         <div class="preview-resize-handle"></div>
         <div class="preview-header">
@@ -526,10 +529,12 @@ class AeorFileBrowserBase extends HTMLElement {
     });
 
     // File entries (both list rows and grid cards) — with multi-select
+    // Selection uses full paths (tab.path + name) so it works across pagination.
     container.querySelectorAll('.file-entry').forEach((el) => {
       el.addEventListener('click', (event) => {
         const entryName = el.dataset.name;
         const entryType = parseInt(el.dataset.type, 10);
+        const entryPath = tab.path.replace(/\/$/, '') + '/' + entryName;
         const entryIndex = tab.entries.findIndex((e) => e.name === entryName);
         const isCtrl = event.ctrlKey || event.metaKey;
         const isShift = event.shiftKey;
@@ -537,13 +542,12 @@ class AeorFileBrowserBase extends HTMLElement {
         if (!isCtrl && !isShift) {
           // Plain click — navigate directory or single-select file
           if (entryType === ENTRY_TYPE_DIR) {
-            const newPath = tab.path.replace(/\/$/, '') + '/' + entryName + '/';
-            this._navigateTo(newPath);
+            this._navigateTo(entryPath + '/');
             return;
           }
           tab.selectedEntries.clear();
-          tab.selectedEntries.add(entryName);
-          tab.lastSelectedIndex = entryIndex;
+          tab.selectedEntries.add(entryPath);
+          tab.lastSelectedAnchor = entryPath;
           this._updateSelectionVisual(tab);
 
           // Preview the single file
@@ -552,22 +556,25 @@ class AeorFileBrowserBase extends HTMLElement {
           this._loadPreview();
         } else if (isCtrl) {
           // Ctrl+Click — toggle individual entry
-          if (tab.selectedEntries.has(entryName))
-            tab.selectedEntries.delete(entryName);
+          if (tab.selectedEntries.has(entryPath))
+            tab.selectedEntries.delete(entryPath);
           else
-            tab.selectedEntries.add(entryName);
+            tab.selectedEntries.add(entryPath);
 
-          tab.lastSelectedIndex = entryIndex;
+          tab.lastSelectedAnchor = entryPath;
           this._updateSelectionVisual(tab);
         } else if (isShift) {
-          // Shift+Click — range select
-          const anchor = (tab.lastSelectedIndex >= 0) ? tab.lastSelectedIndex : 0;
+          // Shift+Click — range select using current visible entries
+          const anchorIndex = (tab.lastSelectedAnchor)
+            ? tab.entries.findIndex((e) => tab.path.replace(/\/$/, '') + '/' + e.name === tab.lastSelectedAnchor)
+            : 0;
+          const anchor = (anchorIndex >= 0) ? anchorIndex : 0;
           const start = Math.min(anchor, entryIndex);
           const end = Math.max(anchor, entryIndex);
 
           for (let i = start; i <= end; i++) {
             if (tab.entries[i])
-              tab.selectedEntries.add(tab.entries[i].name);
+              tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + tab.entries[i].name);
           }
           this._updateSelectionVisual(tab);
         }
@@ -594,10 +601,10 @@ class AeorFileBrowserBase extends HTMLElement {
       if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
         event.preventDefault();
         for (const entry of tab.entries)
-          tab.selectedEntries.add(entry.name);
+          tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + entry.name);
 
         if (tab.entries.length > 0)
-          tab.lastSelectedIndex = tab.entries.length - 1;
+          tab.lastSelectedAnchor = tab.path.replace(/\/$/, '') + '/' + tab.entries[tab.entries.length - 1].name;
 
         this._updateSelectionVisual(tab);
       } else if (event.key === 'Escape') {
@@ -670,7 +677,7 @@ class AeorFileBrowserBase extends HTMLElement {
       preview_component: null,
       preview_height:    null,
       selectedEntries:   new Set(),
-      lastSelectedIndex: -1,
+      lastSelectedAnchor: null,
     });
     this._active_tab_id = tabId;
     this._saveState();
@@ -734,7 +741,7 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.path = path;
     tab.preview_entry = null;
     tab.selectedEntries.clear();
-    tab.lastSelectedIndex = -1;
+    tab.lastSelectedAnchor = null;
     this._saveState();
     // Update tab bar label (breadcrumb changed)
     this._updateTabBarLabel(tab);
@@ -756,47 +763,45 @@ class AeorFileBrowserBase extends HTMLElement {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     if (!container) return;
 
-    // Toggle .selected class on file entries
+    // Toggle .selected class on file entries (match by full path)
     container.querySelectorAll('.file-entry').forEach((el) => {
-      if (tab.selectedEntries.has(el.dataset.name))
+      const entryPath = tab.path.replace(/\/$/, '') + '/' + el.dataset.name;
+      if (tab.selectedEntries.has(entryPath))
         el.classList.add('selected');
       else
         el.classList.remove('selected');
     });
 
-    // Selection bar
-    let selectionBar = container.querySelector('.selection-bar');
-    if (tab.selectedEntries.size > 0) {
-      if (!selectionBar) {
-        selectionBar = document.createElement('div');
-        selectionBar.className = 'selection-bar';
-        const listing = container.querySelector('.tab-listing');
-        if (listing)
-          listing.parentNode.insertBefore(selectionBar, listing);
-      }
-      const count = tab.selectedEntries.size;
-      const extraActions = this.selectionActions(tab) || '';
-      selectionBar.innerHTML =
-        `<span class="selection-count">${count} selected</span>` +
-        `${extraActions}` +
-        '<button class="secondary small selection-clear">Clear</button>' +
-        '<button class="danger small selection-delete">Delete Selected</button>';
+    // Selection bar — always in the DOM, toggle visibility
+    const selectionBar = container.querySelector('.selection-bar');
+    if (selectionBar) {
+      if (tab.selectedEntries.size > 0) {
+        const count = tab.selectedEntries.size;
+        const extraActions = this.selectionActions(tab) || '';
+        selectionBar.innerHTML =
+          `<span class="selection-count">${count} selected</span>` +
+          `${extraActions}` +
+          '<button class="secondary small selection-clear">Clear</button>' +
+          '<button class="danger small selection-delete">Delete Selected</button>';
+        selectionBar.style.visibility = 'visible';
 
-      selectionBar.querySelector('.selection-clear').addEventListener('click', () => {
-        this._clearSelection(tab);
-      });
-      selectionBar.querySelector('.selection-delete').addEventListener('click', () => {
-        this._deleteSelected();
-      });
-      this._bindSelectionBarExtra(selectionBar, tab);
-    } else if (selectionBar) {
-      selectionBar.remove();
+        selectionBar.querySelector('.selection-clear').addEventListener('click', () => {
+          this._clearSelection(tab);
+        });
+        selectionBar.querySelector('.selection-delete').addEventListener('click', () => {
+          this._deleteSelected();
+        });
+        this._bindSelectionBarExtra(selectionBar, tab);
+      } else {
+        selectionBar.innerHTML = '&nbsp;';
+        selectionBar.style.visibility = 'hidden';
+      }
     }
   }
 
   _clearSelection(tab) {
     tab.selectedEntries.clear();
-    tab.lastSelectedIndex = -1;
+    tab.lastSelectedAnchor = null;
     this._updateSelectionVisual(tab);
   }
 
@@ -808,19 +813,20 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!confirm(`Delete ${count} item${(count > 1) ? 's' : ''}? This cannot be undone.`))
       return;
 
-    const names = [...tab.selectedEntries];
-    for (const name of names) {
-      const filePath = tab.path.replace(/\/$/, '') + '/' + name;
+    // selectedEntries contains full paths
+    const paths = [...tab.selectedEntries];
+    for (const filePath of paths) {
       try {
         await this.deletePath(filePath);
       } catch (error) {
+        const name = filePath.split('/').pop();
         if (window.aeorToast)
           window.aeorToast(`Delete failed for ${name}: ${error.message}`, 'error');
       }
     }
 
     tab.selectedEntries.clear();
-    tab.lastSelectedIndex = -1;
+    tab.lastSelectedAnchor = null;
     tab.preview_entry = null;
     this._fetchListing();
   }
