@@ -97,6 +97,15 @@ class AeorFileBrowserBase extends HTMLElement {
     return 'Root';
   }
 
+  /**
+   * Get the preview source URL for a file. Override in subclasses that need
+   * authenticated access (e.g. portal fetches with auth, returns blob URL).
+   * Default: returns fileUrl(path) directly.
+   */
+  async getPreviewSrc(path, contentType) {
+    return this.fileUrl(path);
+  }
+
   // -------------------------------------------------------------------------
   // State management
   // -------------------------------------------------------------------------
@@ -105,6 +114,7 @@ class AeorFileBrowserBase extends HTMLElement {
     try {
       const serializable_tabs = this._tabs.map((tab) => ({
         id:             tab.id,
+        name:           tab.name,
         path:           tab.path,
         view_mode:      tab.view_mode,
         page_size:      tab.page_size,
@@ -131,6 +141,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
       this._tabs = (state.tabs || []).map((tab) => ({
         ...tab,
+        name:              tab.name || this.rootLabel(),
         entries:           [],
         total:             null,
         loading:           false,
@@ -193,7 +204,7 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderTabBar() {
     const tabs = this._tabs.map((tab) => {
       const isActive = (tab.id === this._active_tab_id);
-      const label    = this._truncate(`${tab.id} ${tab.path}`, 30);
+      const label    = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
 
       return `
         <div class="tab ${(isActive) ? 'active' : ''}" data-tab-id="${tab.id}">
@@ -344,7 +355,7 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   // Update the persistent preview panel's contents in place — no DOM destruction.
-  _showPreview(tab) {
+  async _showPreview(tab) {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     if (!container) return;
 
@@ -382,8 +393,8 @@ class AeorFileBrowserBase extends HTMLElement {
     if (previewEl) {
       const contentType = entry.content_type || 'application/octet-stream';
       const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
-      const fileUrl = this.fileUrl(filePath);
-      previewEl.setAttribute('src', fileUrl);
+      const previewSrc = await this.getPreviewSrc(filePath, contentType);
+      previewEl.setAttribute('src', previewSrc);
       previewEl.setAttribute('filename', entry.name);
       previewEl.setAttribute('size', entry.size || 0);
       previewEl.setAttribute('content-type', contentType);
@@ -551,6 +562,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const tabId = 'tab-' + this._tab_counter;
     this._tabs.push({
       id:                tabId,
+      name:              name || tabId,
       path:              '/',
       view_mode:         'list',
       entries:           [],
@@ -632,7 +644,7 @@ class AeorFileBrowserBase extends HTMLElement {
   _updateTabBarLabel(tab) {
     const tabEl = this.querySelector(`.tab[data-tab-id="${tab.id}"] .tab-label`);
     if (tabEl) {
-      tabEl.textContent = this._truncate(`${tab.id} ${tab.path}`, 30);
+      tabEl.textContent = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
     }
   }
 

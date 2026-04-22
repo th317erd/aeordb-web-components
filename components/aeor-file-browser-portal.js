@@ -79,6 +79,24 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     return 'Database';
   }
 
+  /**
+   * Fetch the file with auth headers and return a blob URL for the preview
+   * component. Preview components use plain fetch() which has no auth —
+   * blob URLs bypass that since the data is already fetched.
+   */
+  async getPreviewSrc(path, contentType) {
+    try {
+      const response = await window.api(this.fileUrl(path));
+      if (!response.ok)
+        return this.fileUrl(path);
+
+      const blob = await response.blob();
+      return URL.createObjectURL(blob);
+    } catch (error) {
+      return this.fileUrl(path);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Override: prevent closing the last tab
   // ---------------------------------------------------------------------------
