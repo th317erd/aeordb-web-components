@@ -391,8 +391,18 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._tabs.find((t) => t.id === tabId);
     if (!container || !tab) return;
 
+    // Preserve scroll position across re-render
+    const listing = container.querySelector('.tab-listing');
+    const scrollTop = (listing) ? listing.scrollTop : 0;
+
     container.innerHTML = this._renderDirectoryViewFor(tab);
     this._bindTabContentEvents(tabId);
+
+    // Restore scroll position
+    const newListing = container.querySelector('.tab-listing');
+    if (newListing && scrollTop > 0) {
+      newListing.scrollTop = scrollTop;
+    }
 
     if (tabId === this._active_tab_id) {
       this._hydratePreview();

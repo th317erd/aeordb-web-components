@@ -58,10 +58,10 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   async renamePath(fromPath, toPath) {
-    const response = await window.api('/files/rename', {
-      method: 'POST',
+    const response = await window.api(`/files${fromPath}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: fromPath, to: toPath }),
+      body: JSON.stringify({ to: toPath }),
     });
     if (!response.ok) throw new Error(`Rename failed: ${response.status}`);
   }

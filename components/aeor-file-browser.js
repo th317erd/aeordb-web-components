@@ -83,6 +83,29 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     return (tab && tab.relationship_name) ? tab.relationship_name : 'Database';
   }
 
+  // Override _saveState to persist relationship metadata
+  _saveState() {
+    try {
+      const serializable_tabs = this._tabs.map((tab) => ({
+        id:                tab.id,
+        name:              tab.name,
+        path:              tab.path,
+        view_mode:         tab.view_mode,
+        page_size:         tab.page_size,
+        preview_height:    tab.preview_height,
+        relationship_id:   tab.relationship_id,
+        relationship_name: tab.relationship_name,
+      }));
+      localStorage.setItem('aeordb-file-browser', JSON.stringify({
+        tabs:          serializable_tabs,
+        active_tab_id: this._active_tab_id,
+        tab_counter:   this._tab_counter,
+      }));
+    } catch (error) {
+      // localStorage unavailable
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Client-specific: relationship selector
   // ---------------------------------------------------------------------------
@@ -131,16 +154,60 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     });
   }
 
-  // Override _openTab to attach relationship metadata to tabs
+  // Override _openTab to set relationship_id BEFORE _fetchListing runs.
+  // The base class creates the tab and immediately calls _fetchListing(),
+  // which needs relationship_id to build the API URL. So we inject it
+  // into the tab object right after creation, before the fetch.
   _openTab(relationshipId, relationshipName) {
-    super._openTab(relationshipId, relationshipName);
-    // Attach relationship info to the newly created tab
-    const tab = this._activeTab();
-    if (tab) {
-      tab.relationship_id = relationshipId;
-      tab.relationship_name = relationshipName;
-    }
+    this._tab_counter++;
+    const tabId = 'tab-' + this._tab_counter;
+    this._tabs.push({
+      id:                tabId,
+      name:              relationshipName || tabId,
+      path:              '/',
+      view_mode:         'list',
+      entries:           [],
+      total:             null,
+      loading:           false,
+      loading_more:      false,
+      page_size:         100,
+      preview_entry:     null,
+      preview_component: null,
+      preview_height:    null,
+      selectedEntries:   new Set(),
+      lastSelectedAnchor: null,
+      relationship_id:   relationshipId,
+      relationship_name: relationshipName,
+    });
+    this._active_tab_id = tabId;
     this._saveState();
+    this.render();
+
+    // Fetch directly using raw fetch() instead of this.browse() or
+    // this._fetchListing(). Both of those hang when called from a
+    // click handler context that just triggered render() (innerHTML
+    // destruction breaks the async promise resolution chain).
+    const newTab = this._activeTab();
+    if (newTab) {
+      const rid = newTab.relationship_id;
+      const url = `/api/v1/browse/${rid}?limit=${newTab.page_size || 100}&offset=0`;
+      const self = this;
+      fetch(url)
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+          newTab.entries = data.entries || [];
+          newTab.total = (data.total != null) ? data.total : newTab.entries.length;
+          newTab.loading = false;
+          self._updateTabContent(newTab.id);
+          self._attachScrollListener();
+        })
+        .catch(function (error) {
+          console.error('Failed to fetch listing:', error);
+          newTab.entries = [];
+          newTab.loading = false;
+          self._updateTabContent(newTab.id);
+        });
+    }
   }
 
   // ---------------------------------------------------------------------------
