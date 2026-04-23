@@ -64,6 +64,14 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     if (!response.ok) throw new Error(`Rename failed: ${response.status}`);
   }
 
+  async readFile(path) {
+    const tab = this._activeTab();
+    if (!tab) return null;
+    const response = await fetch(`/api/v1/files/${tab.relationship_id}/${encodeURIComponent(path)}`);
+    if (!response.ok) return null;
+    return response.text();
+  }
+
   openNewTab() {
     // Show the relationship selector
     this._active_tab_id = null;

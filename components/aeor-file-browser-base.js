@@ -75,6 +75,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._active_tab_id = null;
     this._tab_counter = 0;
     this._scroll_listener = null;
+    this._showHidden = false;
   }
 
   // -------------------------------------------------------------------------
@@ -114,6 +115,11 @@ class AeorFileBrowserBase extends HTMLElement {
   // createDirectory(path) — create an empty directory
   async createDirectory(path) {
     throw new Error('AeorFileBrowserBase.createDirectory() must be implemented by subclass');
+  }
+
+  // readFile(path) → string|null — read a file's text content
+  async readFile(path) {
+    throw new Error('AeorFileBrowserBase.readFile() must be implemented by subclass');
   }
 
   // -------------------------------------------------------------------------
@@ -263,13 +269,34 @@ class AeorFileBrowserBase extends HTMLElement {
     `;
   }
 
+  _getVisibleEntries(tab) {
+    if (this._showHidden) return tab.entries;
+    return tab.entries.filter((e) => !e.name.startsWith('.'));
+  }
+
+  _getConfigActions(tab) {
+    const path = tab.path || '';
+    if (!path.includes('/.config'))
+      return '';
+
+    return `
+      <button class="secondary small config-action-btn" data-action="add-index">Add Index</button>
+      <button class="secondary small config-action-btn" data-action="add-parser">Add Parser</button>
+      <button class="secondary small config-action-btn" data-action="cors-config">CORS Config</button>
+    `;
+  }
+
   _renderDirectoryViewFor(tab) {
     const viewMode    = tab.view_mode || 'list';
     const breadcrumbs = this._renderBreadcrumbs(tab);
+    const configActions = this._getConfigActions(tab);
+    const configBar = (configActions) ? `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${configActions}</div>` : '';
     const header = `
       <div class="page-header">
         ${breadcrumbs}
+        ${configBar}
         <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden files' : 'Show hidden files'}">&#128065;</button>
           <div class="view-toggle">
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
             <button class="small ${(viewMode === 'grid') ? 'primary' : 'secondary'}" data-view="grid" title="Grid view">&#9638;</button>
@@ -288,20 +315,27 @@ class AeorFileBrowserBase extends HTMLElement {
       return `${header}${selectionBarHtml}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
     }
 
-    if (tab.entries.length === 0) {
+    const visible = this._getVisibleEntries(tab);
+
+    if (visible.length === 0 && tab.entries.length === 0) {
       return `${header}${selectionBarHtml}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
     }
 
+    if (visible.length === 0 && tab.entries.length > 0) {
+      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div></div>`;
+    }
+
+    const hiddenCount = tab.entries.length - visible.length;
     const countText = (tab.total != null)
-      ? `Showing ${tab.entries.length} of ${tab.total}`
-      : `${tab.entries.length} items`;
+      ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
+      : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
     const loadingMore = (tab.loading_more)
       ? '<div class="scroll-loading">Loading more...</div>'
       : '';
 
     const listing = (viewMode === 'grid')
-      ? this._renderGridViewFor(tab)
-      : this._renderListViewFor(tab);
+      ? this._renderGridViewFor(tab, visible)
+      : this._renderListViewFor(tab, visible);
 
     return `${header}${selectionBarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
       <div class="preview-panel" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
@@ -315,8 +349,8 @@ class AeorFileBrowserBase extends HTMLElement {
       </div>`;
   }
 
-  _renderListViewFor(tab) {
-    const rows = tab.entries.map((entry) => {
+  _renderListViewFor(tab, entries) {
+    const rows = entries.map((entry) => {
       const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
       const icon     = fileIcon(entry.entry_type);
       const size     = (isDir) ? '\u2014' : formatSize(entry.size);
@@ -343,8 +377,8 @@ class AeorFileBrowserBase extends HTMLElement {
     `;
   }
 
-  _renderGridViewFor(tab) {
-    const cards = tab.entries.map((entry) => {
+  _renderGridViewFor(tab, entries) {
+    const cards = entries.map((entry) => {
       const isDir = (entry.entry_type === ENTRY_TYPE_DIR);
       const icon  = fileIcon(entry.entry_type);
       const size  = (isDir) ? 'Folder' : formatSize(entry.size);
@@ -529,6 +563,22 @@ class AeorFileBrowserBase extends HTMLElement {
 
     const tab = this._tabs.find((t) => t.id === tabId);
     if (!tab) return;
+
+    // Toggle hidden files
+    const toggleHiddenBtn = container.querySelector('.toggle-hidden-btn');
+    if (toggleHiddenBtn) {
+      toggleHiddenBtn.addEventListener('click', () => {
+        this._showHidden = !this._showHidden;
+        this._updateTabContent(tabId);
+      });
+    }
+
+    // Config action buttons
+    container.querySelectorAll('.config-action-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this._handleConfigAction(btn.dataset.action);
+      });
+    });
 
     // View toggle
     container.querySelectorAll('[data-view]').forEach((btn) => {
@@ -1071,6 +1121,316 @@ class AeorFileBrowserBase extends HTMLElement {
         this._showPreview(tab);
         break;
     }
+  }
+
+  _handleConfigAction(action) {
+    const tab = this._activeTab();
+    if (!tab) return;
+
+    const configPath = tab.path.replace(/\/$/, '');
+
+    if (action === 'add-index') {
+      this._showAddIndexModal(configPath);
+    } else if (action === 'add-parser') {
+      this._showAddParserModal(configPath);
+    } else if (action === 'cors-config') {
+      this._showCorsConfigModal(configPath);
+    }
+  }
+
+  _showAddIndexModal(configPath) {
+    const modal = document.createElement('aeor-modal');
+    modal.title = 'Add Index';
+    modal.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Field Name</label>
+        <input type="text" class="index-field-name" placeholder="e.g. email" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Index Type</label>
+        <select class="index-field-type" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+          <option value="string">string</option>
+          <option value="u64">u64</option>
+          <option value="i64">i64</option>
+          <option value="f64">f64</option>
+          <option value="bool">bool</option>
+          <option value="timestamp">timestamp</option>
+          <option value="trigram">trigram</option>
+          <option value="phonetic">phonetic</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Min Value (optional, numeric types)</label>
+        <input type="number" class="index-field-min" placeholder="" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Max Value (optional, numeric types)</label>
+        <input type="number" class="index-field-max" placeholder="" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="secondary small modal-cancel">Cancel</button>
+        <button class="primary small modal-save">Add Index</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const nameInput = modal.querySelector('.index-field-name');
+    const typeSelect = modal.querySelector('.index-field-type');
+    const minInput = modal.querySelector('.index-field-min');
+    const maxInput = modal.querySelector('.index-field-max');
+
+    setTimeout(() => nameInput.focus(), 100);
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      modal.remove();
+    };
+
+    const doSave = async () => {
+      const fieldName = nameInput.value.trim();
+      if (!fieldName) return;
+
+      const fieldType = typeSelect.value;
+      const fieldConfig = { name: fieldName, type: fieldType };
+
+      const minVal = minInput.value.trim();
+      const maxVal = maxInput.value.trim();
+      if (minVal !== '') fieldConfig.min = Number(minVal);
+      if (maxVal !== '') fieldConfig.max = Number(maxVal);
+
+      const filePath = configPath + '/indexes.json';
+      try {
+        let existing = { indexes: [] };
+        const raw = await this.readFile(filePath);
+        if (raw) {
+          try { existing = JSON.parse(raw); } catch (e) { /* start fresh */ }
+        }
+        if (!Array.isArray(existing.indexes))
+          existing.indexes = [];
+
+        existing.indexes.push(fieldConfig);
+
+        const body = JSON.stringify(existing, null, 2);
+        await this.upload(filePath, body, 'application/json');
+
+        if (window.aeorToast)
+          window.aeorToast(`Index "${fieldName}" added`, 'success');
+
+        done();
+        this._fetchListing();
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Failed to save index: ' + error.message, 'error');
+      }
+    };
+
+    modal.querySelector('.modal-save').addEventListener('click', doSave);
+    modal.querySelector('.modal-cancel').addEventListener('click', done);
+    modal.addEventListener('close', done);
+    nameInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        doSave();
+      }
+    });
+  }
+
+  _showAddParserModal(configPath) {
+    const modal = document.createElement('aeor-modal');
+    modal.title = 'Add Parser';
+    modal.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Content Type</label>
+        <input type="text" class="parser-content-type" placeholder="e.g. application/pdf" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Parser Path</label>
+        <input type="text" class="parser-path" placeholder="e.g. /parsers/pdf" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="secondary small modal-cancel">Cancel</button>
+        <button class="primary small modal-save">Add Parser</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const contentTypeInput = modal.querySelector('.parser-content-type');
+    const parserPathInput = modal.querySelector('.parser-path');
+
+    setTimeout(() => contentTypeInput.focus(), 100);
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      modal.remove();
+    };
+
+    const doSave = async () => {
+      const contentType = contentTypeInput.value.trim();
+      const parserPath = parserPathInput.value.trim();
+      if (!contentType || !parserPath) return;
+
+      const filePath = configPath + '/parsers.json';
+      try {
+        let existing = {};
+        const raw = await this.readFile(filePath);
+        if (raw) {
+          try { existing = JSON.parse(raw); } catch (e) { /* start fresh */ }
+        }
+
+        existing[contentType] = parserPath;
+
+        const body = JSON.stringify(existing, null, 2);
+        await this.upload(filePath, body, 'application/json');
+
+        if (window.aeorToast)
+          window.aeorToast(`Parser for "${contentType}" added`, 'success');
+
+        done();
+        this._fetchListing();
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Failed to save parser: ' + error.message, 'error');
+      }
+    };
+
+    modal.querySelector('.modal-save').addEventListener('click', doSave);
+    modal.querySelector('.modal-cancel').addEventListener('click', done);
+    modal.addEventListener('close', done);
+    contentTypeInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        doSave();
+      }
+    });
+  }
+
+  _showCorsConfigModal(configPath) {
+    const modal = document.createElement('aeor-modal');
+    modal.title = 'CORS Config';
+    modal.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Origins (comma-separated)</label>
+        <input type="text" class="cors-origins" placeholder="e.g. https://example.com, https://app.example.com" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Methods (comma-separated)</label>
+        <input type="text" class="cors-methods" value="GET,POST,PUT,DELETE" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Headers (comma-separated)</label>
+        <input type="text" class="cors-headers" value="Content-Type,Authorization" style="
+          width: 100%; padding: 8px 12px;
+          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+        ">
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="secondary small modal-cancel">Cancel</button>
+        <button class="primary small modal-save">Save CORS</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const originsInput = modal.querySelector('.cors-origins');
+    const methodsInput = modal.querySelector('.cors-methods');
+    const headersInput = modal.querySelector('.cors-headers');
+
+    // Try to load existing config
+    const filePath = configPath + '/cors.json';
+    this.readFile(filePath).then((raw) => {
+      if (!raw) return;
+      try {
+        const existing = JSON.parse(raw);
+        if (existing.origins) originsInput.value = (Array.isArray(existing.origins)) ? existing.origins.join(', ') : existing.origins;
+        if (existing.methods) methodsInput.value = (Array.isArray(existing.methods)) ? existing.methods.join(', ') : existing.methods;
+        if (existing.headers) headersInput.value = (Array.isArray(existing.headers)) ? existing.headers.join(', ') : existing.headers;
+      } catch (e) { /* ignore */ }
+    });
+
+    setTimeout(() => originsInput.focus(), 100);
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      modal.remove();
+    };
+
+    const doSave = async () => {
+      const origins = originsInput.value.trim();
+      const methods = methodsInput.value.trim();
+      const headers = headersInput.value.trim();
+      if (!origins) return;
+
+      const config = {
+        origins: origins.split(',').map((s) => s.trim()).filter((s) => s),
+        methods: methods.split(',').map((s) => s.trim()).filter((s) => s),
+        headers: headers.split(',').map((s) => s.trim()).filter((s) => s),
+      };
+
+      try {
+        const body = JSON.stringify(config, null, 2);
+        await this.upload(filePath, body, 'application/json');
+
+        if (window.aeorToast)
+          window.aeorToast('CORS config saved', 'success');
+
+        done();
+        this._fetchListing();
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Failed to save CORS config: ' + error.message, 'error');
+      }
+    };
+
+    modal.querySelector('.modal-save').addEventListener('click', doSave);
+    modal.querySelector('.modal-cancel').addEventListener('click', done);
+    modal.addEventListener('close', done);
   }
 
   _promptNewFolder() {

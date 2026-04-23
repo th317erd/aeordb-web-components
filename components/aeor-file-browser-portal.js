@@ -99,6 +99,12 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     });
   }
 
+  async readFile(path) {
+    const response = await window.api(`/files${path}`);
+    if (!response.ok) return null;
+    return response.text();
+  }
+
   async createDirectory(path) {
     const response = await window.api('/files/mkdir', {
       method: 'POST',
