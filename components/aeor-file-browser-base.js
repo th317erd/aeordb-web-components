@@ -295,7 +295,14 @@ class AeorFileBrowserBase extends HTMLElement {
       <div class="page-header">
         ${breadcrumbs}
         ${configBar}
-        <div style="display: flex; gap: 8px; align-items: center;">
+      </div>
+    `;
+
+    // Unified toolbar: selection actions on left, view controls on right (always visible)
+    const toolbarHtml = `
+      <div class="selection-bar">
+        <div class="selection-actions-left"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
           <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden files' : 'Show hidden files'}">&#128065;</button>
           <div class="view-toggle">
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
@@ -308,21 +315,18 @@ class AeorFileBrowserBase extends HTMLElement {
       </div>
     `;
 
-    // Selection bar — always present to avoid layout shift, hidden when empty
-    const selectionBarHtml = '<div class="selection-bar" style="visibility: hidden;">&nbsp;</div>';
-
     if (tab.loading) {
-      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
+      return `${header}${toolbarHtml}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
     }
 
     const visible = this._getVisibleEntries(tab);
 
     if (visible.length === 0 && tab.entries.length === 0) {
-      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
+      return `${header}${toolbarHtml}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
     }
 
     if (visible.length === 0 && tab.entries.length > 0) {
-      return `${header}${selectionBarHtml}<div class="tab-listing"><div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div></div>`;
+      return `${header}${toolbarHtml}<div class="tab-listing"><div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div></div>`;
     }
 
     const hiddenCount = tab.entries.length - visible.length;
@@ -337,7 +341,7 @@ class AeorFileBrowserBase extends HTMLElement {
       ? this._renderGridViewFor(tab, visible)
       : this._renderListViewFor(tab, visible);
 
-    return `${header}${selectionBarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
+    return `${header}${toolbarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
       <div class="preview-panel" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
         <div class="preview-resize-handle"></div>
         <div class="preview-header">
@@ -885,29 +889,27 @@ class AeorFileBrowserBase extends HTMLElement {
         el.classList.remove('selected');
     });
 
-    // Selection bar — always in the DOM, toggle visibility
-    const selectionBar = container.querySelector('.selection-bar');
-    if (selectionBar) {
+    // Update the left side of the unified toolbar (selection actions)
+    const leftSlot = container.querySelector('.selection-actions-left');
+    if (leftSlot) {
       if (tab.selectedEntries.size > 0) {
         const count = tab.selectedEntries.size;
         const extraActions = this.selectionActions(tab) || '';
-        selectionBar.innerHTML =
+        leftSlot.innerHTML =
           `<span class="selection-count">${count} selected</span>` +
           `${extraActions}` +
           '<button class="secondary small selection-clear">Clear Selection</button>' +
           '<button class="danger small selection-delete">Delete Selected</button>';
-        selectionBar.style.visibility = 'visible';
 
-        selectionBar.querySelector('.selection-clear').addEventListener('click', () => {
+        leftSlot.querySelector('.selection-clear').addEventListener('click', () => {
           this._clearSelection(tab);
         });
-        selectionBar.querySelector('.selection-delete').addEventListener('click', () => {
+        leftSlot.querySelector('.selection-delete').addEventListener('click', () => {
           this._deleteSelected();
         });
-        this._bindSelectionBarExtra(selectionBar, tab);
+        this._bindSelectionBarExtra(leftSlot, tab);
       } else {
-        selectionBar.innerHTML = '&nbsp;';
-        selectionBar.style.visibility = 'hidden';
+        leftSlot.innerHTML = '';
       }
     }
   }

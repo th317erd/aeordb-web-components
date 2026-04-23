@@ -273,15 +273,22 @@ input.preview-title {
 .selection-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 8px 16px;
-  height: 44px;
+  min-height: 44px;
   background-color: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
   color: var(--text-secondary);
   box-sizing: border-box;
-  overflow: hidden;
+  flex-wrap: wrap;
+}
+
+.selection-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .selection-bar .selection-count {
