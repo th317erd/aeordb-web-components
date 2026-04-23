@@ -18,6 +18,7 @@ const PREVIEW_OVERRIDES = {
   'application/x-sh':       'aeor-preview-text',
   'application/sql':        'aeor-preview-text',
   'application/toml':       'aeor-preview-text',
+  'application/pdf':        'aeor-preview-pdf',
 };
 
 async function loadPreviewComponent(contentType) {
@@ -620,12 +621,51 @@ class AeorFileBrowserBase extends HTMLElement {
     this._keydownHandler = keydownHandler;
     this.addEventListener('keydown', keydownHandler);
 
-    // Upload
+    // Upload button
     const uploadButton = container.querySelector('.upload-button');
     const uploadInput = container.querySelector('.upload-input');
     if (uploadButton && uploadInput) {
       uploadButton.addEventListener('click', () => uploadInput.click());
       uploadInput.addEventListener('change', (event) => this._handleUpload(event));
+    }
+
+    // Drop zone — drag files from OS into the listing to upload
+    const listing = container.querySelector('.tab-listing');
+    if (listing) {
+      let dragCounter = 0;
+
+      listing.addEventListener('dragover', (event) => {
+        if (event.dataTransfer.types.includes('Files')) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }
+      });
+
+      listing.addEventListener('dragenter', (event) => {
+        if (event.dataTransfer.types.includes('Files')) {
+          event.preventDefault();
+          dragCounter++;
+          listing.classList.add('drop-active');
+        }
+      });
+
+      listing.addEventListener('dragleave', () => {
+        dragCounter--;
+        if (dragCounter <= 0) {
+          dragCounter = 0;
+          listing.classList.remove('drop-active');
+        }
+      });
+
+      listing.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dragCounter = 0;
+        listing.classList.remove('drop-active');
+
+        if (event.dataTransfer.files.length > 0) {
+          this._uploadFiles(event.dataTransfer.files);
+        }
+      });
     }
 
     // Preview panel resize handle
@@ -1012,10 +1052,14 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   async _handleUpload(event) {
-    const tab = this._activeTab();
-    if (!tab) return;
+    await this._uploadFiles(event.target.files);
+    event.target.value = '';
+  }
 
-    const files = event.target.files;
+  async _uploadFiles(files) {
+    const tab = this._activeTab();
+    if (!tab || !files || files.length === 0) return;
+
     for (const file of files) {
       const filePath = tab.path.replace(/\/$/, '') + '/' + file.name;
 
@@ -1029,7 +1073,6 @@ class AeorFileBrowserBase extends HTMLElement {
       }
     }
 
-    event.target.value = '';
     this._fetchListing();
   }
 
