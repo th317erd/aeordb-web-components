@@ -853,7 +853,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const count = tab.selectedEntries.size;
     const confirmed = await this._confirm(
       'Delete Files',
-      `Delete ${count} item${(count > 1) ? 's' : ''}? This cannot be undone.`,
+      `Delete ${count} item${(count > 1) ? 's' : ''}? Files can be recovered from a snapshot if needed.`,
     );
     if (!confirmed) return;
 
@@ -1028,7 +1028,7 @@ class AeorFileBrowserBase extends HTMLElement {
       case 'delete': {
         const confirmed = await this._confirm(
           'Delete File',
-          `Delete "${entry.name}"? This cannot be undone.`,
+          `Delete "${entry.name}"? Files can be recovered from a snapshot if needed.`,
         );
         if (!confirmed) break;
         try {
