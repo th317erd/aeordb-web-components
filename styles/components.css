@@ -616,3 +616,74 @@ button.small {
   padding: 4px 10px;
   font-size: 12px;
 }
+
+/* ==========================================================================
+   File Browser — Mobile Responsive
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Prevent horizontal overflow on mobile */
+  aeor-file-browser,
+  aeor-file-browser-portal,
+  aeor-files {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .tab-content,
+  .tab-listing,
+  .preview-panel {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Selection bar: wrap buttons, allow height to grow */
+  .selection-bar {
+    height: auto !important;
+    min-height: 44px;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    overflow: visible !important;
+  }
+
+  /* Preview header: stack title above actions */
+  .preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .preview-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  input.preview-title {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Preview panel: shorter on mobile */
+  .preview-panel {
+    height: 30vh;
+    min-height: 120px;
+  }
+
+  /* Table: no min-width on mobile */
+  table {
+    min-width: 0 !important;
+  }
+
+  /* Toolbar: wrap view toggle + buttons */
+  .page-header > div[style] {
+    flex-wrap: wrap;
+  }
+
+  /* Compact button padding on mobile */
+  button.small {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
