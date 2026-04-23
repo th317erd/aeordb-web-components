@@ -66,6 +66,48 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (!response.ok) throw new Error(`Rename failed: ${response.status}`);
   }
 
+  /**
+   * Upload with XHR for byte-level progress reporting.
+   */
+  async uploadWithProgress(path, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', this.fileUrl(path));
+
+      // Auth header
+      if (window.AUTH && window.AUTH.token)
+        xhr.setRequestHeader('Authorization', `Bearer ${window.AUTH.token}`);
+
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable)
+          onProgress(event.loaded, event.total);
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300)
+          resolve();
+        else
+          reject(new Error(`${xhr.status}`));
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+      xhr.send(file);
+    });
+  }
+
+  async createDirectory(path) {
+    const response = await window.api('/files/mkdir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    if (!response.ok) throw new Error(`Create folder failed: ${response.status}`);
+  }
+
   openNewTab() {
     // Portal has no relationship selector — just open a new tab at root
     this._openTab('portal', 'Database');

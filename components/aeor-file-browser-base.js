@@ -111,6 +111,11 @@ class AeorFileBrowserBase extends HTMLElement {
     throw new Error('AeorFileBrowserBase.openNewTab() must be implemented by subclass');
   }
 
+  // createDirectory(path) — create an empty directory
+  async createDirectory(path) {
+    throw new Error('AeorFileBrowserBase.createDirectory() must be implemented by subclass');
+  }
+
   // -------------------------------------------------------------------------
   // Hook methods — subclasses CAN override these
   // -------------------------------------------------------------------------
@@ -269,6 +274,7 @@ class AeorFileBrowserBase extends HTMLElement {
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
             <button class="small ${(viewMode === 'grid') ? 'primary' : 'secondary'}" data-view="grid" title="Grid view">&#9638;</button>
           </div>
+          <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
           <input type="file" class="upload-input" style="display:none" multiple>
         </div>
@@ -620,6 +626,12 @@ class AeorFileBrowserBase extends HTMLElement {
 
     this._keydownHandler = keydownHandler;
     this.addEventListener('keydown', keydownHandler);
+
+    // New Folder button
+    const newFolderButton = container.querySelector('.new-folder-button');
+    if (newFolderButton) {
+      newFolderButton.addEventListener('click', () => this._promptNewFolder());
+    }
 
     // Upload button
     const uploadButton = container.querySelector('.upload-button');
@@ -1051,6 +1063,75 @@ class AeorFileBrowserBase extends HTMLElement {
     }
   }
 
+  _promptNewFolder() {
+    const modal = document.createElement('aeor-modal');
+    modal.title = 'New Folder';
+    modal.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Folder Name</label>
+        <input type="text" class="new-folder-name" placeholder="my-folder" style="
+          width: 100%;
+          padding: 8px 12px;
+          background: var(--bg-primary, #0d1117);
+          border: 1px solid var(--border, #30363d);
+          border-radius: var(--radius, 6px);
+          color: var(--text-primary, #e6edf3);
+          font-size: 0.9rem;
+          outline: none;
+          font-family: var(--font-sans);
+          box-sizing: border-box;
+        ">
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="secondary small modal-cancel">Cancel</button>
+        <button class="primary small modal-create">Create</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('.new-folder-name');
+    const createBtn = modal.querySelector('.modal-create');
+    const cancelBtn = modal.querySelector('.modal-cancel');
+
+    // Focus the input
+    setTimeout(() => input.focus(), 100);
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      modal.remove();
+    };
+
+    const doCreate = async () => {
+      const name = input.value.trim();
+      if (!name) return;
+
+      const tab = this._activeTab();
+      if (!tab) return;
+
+      const folderPath = tab.path.replace(/\/$/, '') + '/' + name;
+      try {
+        await this.createDirectory(folderPath);
+        done();
+        this._fetchListing();
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Failed to create folder: ' + error.message, 'error');
+      }
+    };
+
+    createBtn.addEventListener('click', doCreate);
+    cancelBtn.addEventListener('click', done);
+    modal.addEventListener('close', done);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        doCreate();
+      }
+    });
+  }
+
   async _handleUpload(event) {
     await this._uploadFiles(event.target.files);
     event.target.value = '';
@@ -1060,20 +1141,109 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._activeTab();
     if (!tab || !files || files.length === 0) return;
 
+    const totalFiles = files.length;
+    let completedFiles = 0;
+    let totalBytes = 0;
+    let uploadedBytes = 0;
+    let failedCount = 0;
+    const startTime = Date.now();
+
+    for (const file of files) totalBytes += file.size;
+
+    // Show progress panel at the bottom of the tab content
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    let progressPanel = container && container.querySelector('.upload-progress');
+    if (!progressPanel && container) {
+      progressPanel = document.createElement('div');
+      progressPanel.className = 'upload-progress';
+      container.appendChild(progressPanel);
+    }
+
+    const updateProgress = (currentFile, fileLoaded, fileTotal) => {
+      if (!progressPanel) return;
+
+      const currentUploadedBytes = uploadedBytes + fileLoaded;
+      const overallPercent = (totalBytes > 0) ? Math.round((currentUploadedBytes / totalBytes) * 100) : 0;
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = (elapsed > 0) ? currentUploadedBytes / elapsed : 0;
+      const speedText = this._formatSpeed(speed);
+      const remaining = (speed > 0) ? (totalBytes - currentUploadedBytes) / speed : 0;
+      const remainingText = (remaining > 0) ? this._formatDuration(remaining) : '';
+
+      progressPanel.innerHTML = `
+        <div class="upload-progress-header">
+          <span class="upload-progress-title">Uploading ${completedFiles + 1} of ${totalFiles}</span>
+          <span class="upload-progress-speed">${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}</span>
+        </div>
+        <div class="upload-progress-filename">${escapeHtml(currentFile)}</div>
+        <div class="upload-progress-bar-track">
+          <div class="upload-progress-bar-fill" style="width: ${overallPercent}%"></div>
+        </div>
+        <div class="upload-progress-meta">
+          ${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
+        </div>
+      `;
+    };
+
     for (const file of files) {
       const filePath = tab.path.replace(/\/$/, '') + '/' + file.name;
 
       try {
-        const arrayBuffer = await file.arrayBuffer();
-        await this.upload(filePath, arrayBuffer, file.type || 'application/octet-stream');
+        updateProgress(file.name, 0, file.size);
+        await this.uploadWithProgress(filePath, file, (loaded, total) => {
+          updateProgress(file.name, loaded, total);
+        });
+        uploadedBytes += file.size;
+        completedFiles++;
       } catch (error) {
+        uploadedBytes += file.size;
+        completedFiles++;
+        failedCount++;
         if (window.aeorToast) {
           window.aeorToast(`Upload failed for ${file.name}: ${error.message}`, 'error');
         }
       }
     }
 
+    // Show completion briefly, then remove
+    if (progressPanel) {
+      progressPanel.innerHTML = `
+        <div class="upload-progress-header">
+          <span class="upload-progress-title">Upload complete</span>
+        </div>
+        <div class="upload-progress-bar-track">
+          <div class="upload-progress-bar-fill" style="width: 100%"></div>
+        </div>
+        <div class="upload-progress-meta">
+          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
+        </div>
+      `;
+      setTimeout(() => { if (progressPanel.parentNode) progressPanel.remove(); }, 2000);
+    }
+
     this._fetchListing();
+  }
+
+  /**
+   * Upload a file with progress callback. Override in subclasses for
+   * byte-level progress (e.g. via XHR). Default: falls back to upload().
+   */
+  async uploadWithProgress(path, file, onProgress) {
+    const arrayBuffer = await file.arrayBuffer();
+    await this.upload(path, arrayBuffer, file.type || 'application/octet-stream');
+    onProgress(file.size, file.size);
+  }
+
+  _formatSpeed(bytesPerSec) {
+    if (bytesPerSec >= 1048576) return (bytesPerSec / 1048576).toFixed(1) + ' MB/s';
+    if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
+    return Math.round(bytesPerSec) + ' B/s';
+  }
+
+  _formatDuration(seconds) {
+    if (seconds < 60) return Math.round(seconds) + 's';
+    if (seconds < 3600) return Math.round(seconds / 60) + 'm ' + Math.round(seconds % 60) + 's';
+    return Math.round(seconds / 3600) + 'h ' + Math.round((seconds % 3600) / 60) + 'm';
   }
 
   _showContextMenu(x, y, entry) {

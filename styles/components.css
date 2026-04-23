@@ -102,11 +102,20 @@
    File Browser
    ========================================================================== */
 
+aeor-files {
+  display: flex;
+  flex-direction: column;
+  /* Fill viewport minus main padding (28px top + 28px bottom) */
+  height: calc(100vh - 56px);
+  min-height: 0;
+}
+
 aeor-file-browser,
 aeor-file-browser-portal {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   user-select: none;
   -webkit-user-select: none;
   outline: none;
@@ -499,6 +508,62 @@ input.preview-title:focus {
 }
 
 .context-menu-item:hover { background-color: var(--bg-tertiary); }
+
+/* Upload progress */
+.upload-progress {
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  flex-shrink: 0;
+}
+
+.upload-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.upload-progress-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.upload-progress-speed {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.upload-progress-filename {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-progress-bar-track {
+  height: 6px;
+  background-color: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.upload-progress-bar-fill {
+  height: 100%;
+  background-color: var(--accent);
+  border-radius: 3px;
+  transition: width 0.15s ease;
+}
+
+.upload-progress-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
 /* Empty state */
 .empty-state {

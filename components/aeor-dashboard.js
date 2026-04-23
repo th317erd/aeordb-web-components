@@ -7,8 +7,10 @@
  *
  * Usage:
  *   <aeor-dashboard></aeor-dashboard>
+ *   <aeor-dashboard base-url="http://remote:6830"></aeor-dashboard>
  *
- * Requires window.api() for fetch calls (portal convention).
+ * Without `base-url`, hits the current origin (portal use-case).
+ * With `base-url`, hits the specified remote URL (client connections page).
  */
 
 import { escapeHtml, formatBytes, formatNumber, formatRate, formatBytesRate, formatPercent, formatUptime } from '../utils.js';
@@ -33,6 +35,10 @@ const SIZE_DEFINITIONS = [
 const CHART_COLORS = ['#f0883e', '#3fb950', '#d2a8ff', '#58a6ff'];
 
 export class AeorDashboard extends HTMLElement {
+  static get observedAttributes() {
+    return ['base-url'];
+  }
+
   constructor() {
     super();
     this._interval        = null;
@@ -49,6 +55,28 @@ export class AeorDashboard extends HTMLElement {
     this.connectSSE();
   }
 
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (name === 'base-url' && oldValue !== newValue && this.isConnected) {
+      // Re-connect to the new target
+      this._activityHistory = [];
+      this._stats = null;
+      this.disconnectedCallback();
+      this.render();
+      this.fetchStats();
+      this.connectSSE();
+    }
+  }
+
+  /**
+   * Prepend the base URL (from the `base-url` attribute) to an API path.
+   * When no `base-url` is set the path is returned as-is, hitting the
+   * current origin (existing portal behaviour).
+   */
+  _apiUrl(path) {
+    const base = this.getAttribute('base-url') || '';
+    return `${base}${path}`;
+  }
+
   disconnectedCallback() {
     if (this._eventSource) {
       this._eventSource.close();
@@ -62,7 +90,7 @@ export class AeorDashboard extends HTMLElement {
 
   connectSSE() {
     // Build SSE URL — subscribe to metrics events
-    let url = '/events/stream?events=metrics';
+    const url = this._apiUrl('/events/stream?events=metrics');
 
     // EventSource doesn't support Authorization headers natively.
     // For --auth=false mode, no token is needed. For auth mode,
@@ -212,7 +240,8 @@ export class AeorDashboard extends HTMLElement {
 
   async fetchStats() {
     try {
-      const response = await window.api('/system/stats');
+      const url = this._apiUrl('/system/stats');
+      const response = await fetch(url);
 
       if (!response.ok)
         throw new Error(`Stats request failed (${response.status})`);
