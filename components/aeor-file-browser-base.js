@@ -5,6 +5,7 @@ import {
   escapeHtml, escapeAttr, isImageFile,
   ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
+import './aeor-modal.js';
 
 // Content types that should be routed to an existing preview component
 // instead of relying on the dynamic import cascade.
@@ -810,8 +811,11 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab || tab.selectedEntries.size === 0) return;
 
     const count = tab.selectedEntries.size;
-    if (!confirm(`Delete ${count} item${(count > 1) ? 's' : ''}? This cannot be undone.`))
-      return;
+    const confirmed = await this._confirm(
+      'Delete Files',
+      `Delete ${count} item${(count > 1) ? 's' : ''}? This cannot be undone.`,
+    );
+    if (!confirmed) return;
 
     // selectedEntries contains full paths
     const paths = [...tab.selectedEntries];
@@ -981,8 +985,12 @@ class AeorFileBrowserBase extends HTMLElement {
     const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
 
     switch (action) {
-      case 'delete':
-        if (!confirm(`Delete "${entry.name}"? This cannot be undone.`)) break;
+      case 'delete': {
+        const confirmed = await this._confirm(
+          'Delete File',
+          `Delete "${entry.name}"? This cannot be undone.`,
+        );
+        if (!confirmed) break;
         try {
           await this.deletePath(filePath);
           tab.preview_entry = null;
@@ -993,6 +1001,7 @@ class AeorFileBrowserBase extends HTMLElement {
           }
         }
         break;
+      }
 
       case 'close-preview':
         tab.preview_entry = null;
@@ -1076,6 +1085,37 @@ class AeorFileBrowserBase extends HTMLElement {
   _truncate(str, max) {
     if (str.length <= max) return str;
     return str.substring(0, max - 1) + '\u2026';
+  }
+
+  /**
+   * Show a styled confirmation modal. Returns a Promise that resolves to
+   * true (confirmed) or false (cancelled/dismissed).
+   */
+  _confirm(title, message) {
+    return new Promise((resolve) => {
+      const modal = document.createElement('aeor-modal');
+      modal.title = title;
+      modal.innerHTML = `
+        <p style="color: var(--text-primary, #e6edf3); margin: 0 0 20px 0; font-size: 0.95rem;">${escapeHtml(message)}</p>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="secondary small confirm-cancel">Cancel</button>
+          <button class="danger small confirm-ok">Delete</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      let resolved = false;
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        modal.remove();
+        resolve(result);
+      };
+
+      modal.querySelector('.confirm-cancel').addEventListener('click', () => done(false));
+      modal.querySelector('.confirm-ok').addEventListener('click', () => done(true));
+      modal.addEventListener('close', () => done(false));
+    });
   }
 }
 

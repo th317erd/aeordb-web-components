@@ -237,6 +237,7 @@ input.preview-title {
 
 /* File entries — list view */
 .file-entry { cursor: pointer; outline: none; }
+.file-entry td:first-child { border-left: 3px solid transparent; }
 .file-entry:hover { background-color: var(--bg-tertiary); }
 .file-entry:focus { outline: none; }
 
@@ -245,7 +246,7 @@ input.preview-title {
 }
 
 .file-entry.selected td:first-child {
-  border-left: 3px solid var(--accent);
+  border-left-color: var(--accent);
 }
 
 .file-entry[draggable] { cursor: grab; }
@@ -265,10 +266,13 @@ input.preview-title {
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
+  height: 44px;
   background-color: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
   color: var(--text-secondary);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .selection-bar .selection-count {
