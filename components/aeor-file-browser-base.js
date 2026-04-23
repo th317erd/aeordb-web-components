@@ -844,7 +844,7 @@ class AeorFileBrowserBase extends HTMLElement {
         selectionBar.innerHTML =
           `<span class="selection-count">${count} selected</span>` +
           `${extraActions}` +
-          '<button class="secondary small selection-clear">Clear</button>' +
+          '<button class="secondary small selection-clear">Clear Selection</button>' +
           '<button class="danger small selection-delete">Delete Selected</button>';
         selectionBar.style.visibility = 'visible';
 
