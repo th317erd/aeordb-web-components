@@ -740,7 +740,11 @@ class AeorFileBrowserBase extends HTMLElement {
         dragCounter = 0;
         listing.classList.remove('drop-active');
 
-        if (event.dataTransfer.files.length > 0) {
+        // Use webkitGetAsEntry for folder support, fall back to .files
+        const items = event.dataTransfer.items;
+        if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+          this._handleDroppedItems(items);
+        } else if (event.dataTransfer.files.length > 0) {
           this._uploadFiles(event.dataTransfer.files);
         }
       });
@@ -1504,6 +1508,150 @@ class AeorFileBrowserBase extends HTMLElement {
         doCreate();
       }
     });
+  }
+
+  /**
+   * Handle dropped DataTransferItems — supports folders via webkitGetAsEntry.
+   * Recursively reads folder contents and collects all files with their
+   * relative paths preserved.
+   */
+  async _handleDroppedItems(items) {
+    const files = [];
+
+    const readEntry = (entry, pathPrefix) => {
+      return new Promise((resolve) => {
+        if (entry.isFile) {
+          entry.file((file) => {
+            // Attach the relative path so _uploadFiles can preserve folder structure
+            file._relativePath = pathPrefix + file.name;
+            files.push(file);
+            resolve();
+          }, () => resolve()); // skip on error
+        } else if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const readBatch = () => {
+            reader.readEntries(async (entries) => {
+              if (entries.length === 0) {
+                resolve();
+                return;
+              }
+              for (const child of entries) {
+                await readEntry(child, pathPrefix + entry.name + '/');
+              }
+              // readEntries may not return all entries at once — keep reading
+              readBatch();
+            }, () => resolve());
+          };
+          readBatch();
+        } else {
+          resolve();
+        }
+      });
+    };
+
+    // Process all dropped items
+    const promises = [];
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) {
+        promises.push(readEntry(entry, ''));
+      }
+    }
+    await Promise.all(promises);
+
+    if (files.length > 0) {
+      this._uploadFilesWithPaths(files);
+    }
+  }
+
+  /**
+   * Upload files with relative paths preserved (from folder drops).
+   * Each file has a `_relativePath` property with the folder-relative path.
+   */
+  async _uploadFilesWithPaths(files) {
+    const tab = this._activeTab();
+    if (!tab || !files || files.length === 0) return;
+
+    const totalFiles = files.length;
+    let completedFiles = 0;
+    let totalBytes = 0;
+    let uploadedBytes = 0;
+    let failedCount = 0;
+    const startTime = Date.now();
+
+    for (const file of files) totalBytes += file.size;
+
+    // Show progress panel
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    let progressPanel = container && container.querySelector('.upload-progress');
+    if (!progressPanel && container) {
+      progressPanel = document.createElement('div');
+      progressPanel.className = 'upload-progress';
+      container.appendChild(progressPanel);
+    }
+
+    const updateProgress = (currentFile, fileLoaded, fileTotal) => {
+      if (!progressPanel) return;
+      const currentUploadedBytes = uploadedBytes + fileLoaded;
+      const overallPercent = (totalBytes > 0) ? Math.round((currentUploadedBytes / totalBytes) * 100) : 0;
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = (elapsed > 0) ? currentUploadedBytes / elapsed : 0;
+      const speedText = this._formatSpeed(speed);
+      const remaining = (speed > 0) ? (totalBytes - currentUploadedBytes) / speed : 0;
+      const remainingText = (remaining > 0) ? this._formatDuration(remaining) : '';
+
+      progressPanel.innerHTML = `
+        <div class="upload-progress-header">
+          <span class="upload-progress-title">Uploading ${completedFiles + 1} of ${totalFiles}</span>
+          <span class="upload-progress-speed">${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}</span>
+        </div>
+        <div class="upload-progress-filename">${escapeHtml(currentFile)}</div>
+        <div class="upload-progress-bar-track">
+          <div class="upload-progress-bar-fill" style="width: ${overallPercent}%"></div>
+        </div>
+        <div class="upload-progress-meta">
+          ${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
+        </div>
+      `;
+    };
+
+    for (const file of files) {
+      const relativePath = file._relativePath || file.name;
+      const filePath = tab.path.replace(/\/$/, '') + '/' + relativePath;
+
+      try {
+        updateProgress(relativePath, 0, file.size);
+        await this.uploadWithProgress(filePath, file, (loaded, total) => {
+          updateProgress(relativePath, loaded, total);
+        });
+        uploadedBytes += file.size;
+        completedFiles++;
+      } catch (error) {
+        uploadedBytes += file.size;
+        completedFiles++;
+        failedCount++;
+        if (window.aeorToast) {
+          window.aeorToast(`Upload failed for ${relativePath}: ${error.message}`, 'error');
+        }
+      }
+    }
+
+    if (progressPanel) {
+      progressPanel.innerHTML = `
+        <div class="upload-progress-header">
+          <span class="upload-progress-title">Upload complete</span>
+        </div>
+        <div class="upload-progress-bar-track">
+          <div class="upload-progress-bar-fill" style="width: 100%"></div>
+        </div>
+        <div class="upload-progress-meta">
+          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
+        </div>
+      `;
+      setTimeout(() => { if (progressPanel.parentNode) progressPanel.remove(); }, 2000);
+    }
+
+    this._fetchListing();
   }
 
   async _handleUpload(event) {
