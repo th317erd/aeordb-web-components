@@ -621,7 +621,11 @@ class AeorFileBrowserBase extends HTMLElement {
     // File entries — delegate to shared method
     this._bindFileEntryEvents(container, tab);
 
-    /**
+    // Keyboard, upload, drop zone, resize — delegate to shared method
+    this._bindKeyboardAndControls(container, tab);
+  }
+
+  /**
    * Bind click and context menu handlers on file entry elements.
    * Separated so it can be called independently after a sort refresh
    * without rebinding sort headers or other controls.
@@ -689,7 +693,9 @@ class AeorFileBrowserBase extends HTMLElement {
         this._showContextMenu(event.clientX, event.clientY, entry);
       });
     });
+  }
 
+  _bindKeyboardAndControls(container, tab) {
     // Keyboard: Ctrl+A to select all, Escape to clear
     this.setAttribute('tabindex', '0');
     const keydownHandler = (event) => {
