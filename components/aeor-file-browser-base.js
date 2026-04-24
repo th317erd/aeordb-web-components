@@ -1864,7 +1864,7 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _sortIndicator(field) {
-    if (this._sortField !== field) return '<span class="sort-indicator">\u2195</span>';
+    if (this._sortField !== field) return '';
     const arrow = (this._sortOrder === 'asc') ? '\u25B2' : '\u25BC';
     return `<span class="sort-indicator active">${arrow}</span>`;
   }
