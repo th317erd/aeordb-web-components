@@ -294,7 +294,12 @@ class AeorFileBrowserBase extends HTMLElement {
     const header = `
       <div class="page-header">
         ${breadcrumbs}
-        ${configBar}
+        <div style="display: flex; gap: 8px; align-items: center;">
+          ${configBar}
+          <button class="secondary small new-folder-button">New Folder</button>
+          <button class="primary small upload-button">Upload</button>
+          <input type="file" class="upload-input" style="display:none" multiple>
+        </div>
       </div>
     `;
 
@@ -308,9 +313,6 @@ class AeorFileBrowserBase extends HTMLElement {
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
             <button class="small ${(viewMode === 'grid') ? 'primary' : 'secondary'}" data-view="grid" title="Grid view">&#9638;</button>
           </div>
-          <button class="secondary small new-folder-button">New Folder</button>
-          <button class="primary small upload-button">Upload</button>
-          <input type="file" class="upload-input" style="display:none" multiple>
         </div>
       </div>
     `;
