@@ -357,23 +357,25 @@ class AeorFileBrowserBase extends HTMLElement {
       </div>`;
   }
 
-  _renderListViewFor(tab, entries) {
-    const rows = entries.map((entry) => {
-      const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
-      const icon     = fileIcon(entry.entry_type);
-      const size     = (isDir) ? '\u2014' : formatSize(entry.size);
-      const created  = formatDate(entry.created_at);
-      const modified = formatDate(entry.updated_at);
+  _renderListRow(entry) {
+    const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
+    const icon     = fileIcon(entry.entry_type);
+    const size     = (isDir) ? '\u2014' : formatSize(entry.size);
+    const created  = formatDate(entry.created_at);
+    const modified = formatDate(entry.updated_at);
 
-      return `
-        <tr class="file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}">
-          <td><span class="file-icon">${icon}</span>${escapeHtml(entry.name)}</td>
-          <td>${size}</td>
-          <td>${created}</td>
-          <td>${modified}</td>
-        </tr>
-      `;
-    }).join('');
+    return `
+      <tr class="file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}">
+        <td><span class="file-icon">${icon}</span>${escapeHtml(entry.name)}</td>
+        <td>${size}</td>
+        <td>${created}</td>
+        <td>${modified}</td>
+      </tr>
+    `;
+  }
+
+  _renderListViewFor(tab, entries) {
+    const rows = entries.map((entry) => this._renderListRow(entry)).join('');
 
     return `
       <table>
@@ -616,8 +618,15 @@ class AeorFileBrowserBase extends HTMLElement {
       });
     });
 
-    // File entries (both list rows and grid cards) — with multi-select
-    // Selection uses full paths (tab.path + name) so it works across pagination.
+    // File entries — delegate to shared method
+    this._bindFileEntryEvents(container, tab);
+
+    /**
+   * Bind click and context menu handlers on file entry elements.
+   * Separated so it can be called independently after a sort refresh
+   * without rebinding sort headers or other controls.
+   */
+  _bindFileEntryEvents(container, tab) {
     container.querySelectorAll('.file-entry').forEach((el) => {
       el.addEventListener('click', (event) => {
         const entryName = el.dataset.name;
@@ -1843,6 +1852,10 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   async _handleSort(field) {
+    // Prevent re-entrancy from stacked event handlers
+    if (this._sorting) return;
+    this._sorting = true;
+
     if (this._sortField === field) {
       this._sortOrder = (this._sortOrder === 'asc') ? 'desc' : 'asc';
     } else {
@@ -1851,70 +1864,31 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     const tab = this._activeTab();
-    if (!tab) return;
+    if (!tab) { this._sorting = false; return; }
 
-    // Soft re-fetch: get sorted data without destroying the DOM
+    // Save preview state so it survives the re-render
+    const savedPreview = tab.preview_entry;
+    const savedComponent = tab.preview_component;
+
+    // Fetch sorted data
     try {
       const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
     } catch (error) {
       console.error('Failed to fetch sorted listing:', error);
+      this._sorting = false;
       return;
     }
 
-    // Update only the listing area — leave the preview panel intact
-    const container = this.querySelector(`#tab-content-${tab.id}`);
-    if (!container) return;
+    // Restore preview state before re-render
+    tab.preview_entry = savedPreview;
+    tab.preview_component = savedComponent;
 
-    const listing = container.querySelector('.tab-listing');
-    if (!listing) return;
+    // Re-render tab content (this rebuilds the listing + preserves preview)
+    this._updateTabContent(tab.id);
 
-    const visible = this._getVisibleEntries(tab);
-    const viewMode = tab.view_mode || 'list';
-
-    // Re-render listing content
-    if (visible.length === 0 && tab.entries.length === 0) {
-      listing.innerHTML = '<div class="empty-state">This directory is empty.</div>';
-    } else if (visible.length === 0 && tab.entries.length > 0) {
-      listing.innerHTML = `<div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div>`;
-    } else {
-      const hiddenCount = tab.entries.length - visible.length;
-      const countText = (tab.total != null)
-        ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
-        : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
-
-      const rendered = (viewMode === 'grid')
-        ? this._renderGridViewFor(tab, visible)
-        : this._renderListViewFor(tab, visible);
-
-      listing.innerHTML = `${rendered}<div class="entry-count">${countText}</div>`;
-    }
-
-    // Re-bind only the listing events (file clicks, sort headers, keyboard)
-    this._bindTabContentEvents(tab.id);
-
-    // Update sort indicators in the header
-    container.querySelectorAll('th[data-sort]').forEach((th) => {
-      const sortField = th.dataset.sort;
-      const indicatorHtml = this._sortIndicator(sortField);
-      const textNode = th.childNodes[0];
-      const label = textNode ? textNode.textContent.trim() : sortField;
-      th.innerHTML = `${label} ${indicatorHtml}`;
-    });
-
-    // Re-bind sort click handlers
-    container.querySelectorAll('th[data-sort]').forEach((th) => {
-      th.addEventListener('click', () => {
-        this._handleSort(th.dataset.sort);
-      });
-    });
-
-    // Update selection visual
-    this._updateSelectionVisual(tab);
-
-    // Re-attach scroll listener
-    this._attachScrollListener();
+    this._sorting = false;
   }
 
   /**

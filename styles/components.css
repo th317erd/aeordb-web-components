@@ -267,13 +267,29 @@ input.preview-title {
   outline-offset: -2px;
 }
 
-/* Sticky column headers */
+/* Sticky column headers with fixed widths */
+.tab-listing table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 .tab-listing thead th {
   position: sticky;
   top: 0;
   background-color: var(--bg-primary, #0d1117);
   z-index: 1;
   border-bottom: 1px solid var(--border);
+}
+
+.tab-listing thead th:nth-child(1) { width: 45%; }
+.tab-listing thead th:nth-child(2) { width: 12%; }
+.tab-listing thead th:nth-child(3) { width: 20%; }
+.tab-listing thead th:nth-child(4) { width: 23%; }
+
+.tab-listing td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Sortable column headers */
