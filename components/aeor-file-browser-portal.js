@@ -16,12 +16,15 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   // Abstract method implementations
   // ---------------------------------------------------------------------------
 
-  async browse(path, limit, offset) {
+  async browse(path, limit, offset, sort, order) {
     // AeorDB route is /files/{*path} — root requires %2F
     const filesPath = (path && path !== '/')
       ? `/files/${path}`
       : '/files/%2F';
-    const response = await window.api(`${filesPath}?limit=${limit}&offset=${offset}`);
+    let qs = `?limit=${limit}&offset=${offset}`;
+    if (sort) qs += `&sort=${sort}`;
+    if (order) qs += `&order=${order}`;
+    const response = await window.api(`${filesPath}${qs}`);
     if (!response.ok) throw new Error(`Browse failed: ${response.status}`);
     const data = await response.json();
     const items = data.items || [];

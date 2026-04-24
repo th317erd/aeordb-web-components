@@ -267,6 +267,36 @@ input.preview-title {
   outline-offset: -2px;
 }
 
+/* Sticky column headers */
+.tab-listing thead th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-primary, #0d1117);
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Sortable column headers */
+.tab-listing th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tab-listing th[data-sort]:hover {
+  color: var(--accent);
+}
+
+.tab-listing th .sort-indicator {
+  margin-left: 4px;
+  font-size: 0.7em;
+  opacity: 0.5;
+}
+
+.tab-listing th .sort-indicator.active {
+  opacity: 1;
+  color: var(--accent);
+}
+
 .file-icon { margin-right: 8px; }
 
 /* Selection bar */
@@ -419,6 +449,7 @@ input.preview-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
 }

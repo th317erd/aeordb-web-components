@@ -76,6 +76,8 @@ class AeorFileBrowserBase extends HTMLElement {
     this._tab_counter = 0;
     this._scroll_listener = null;
     this._showHidden = false;
+    this._sortField = 'name';
+    this._sortOrder = 'asc';
   }
 
   // -------------------------------------------------------------------------
@@ -376,7 +378,12 @@ class AeorFileBrowserBase extends HTMLElement {
     return `
       <table>
         <thead>
-          <tr><th>Name</th><th>Size</th><th>Created</th><th>Modified</th></tr>
+          <tr>
+            <th data-sort="name">Name ${this._sortIndicator('name')}</th>
+            <th data-sort="size">Size ${this._sortIndicator('size')}</th>
+            <th data-sort="created_at">Created ${this._sortIndicator('created_at')}</th>
+            <th data-sort="updated_at">Modified ${this._sortIndicator('updated_at')}</th>
+          </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -578,6 +585,13 @@ class AeorFileBrowserBase extends HTMLElement {
         this._updateTabContent(tabId);
       });
     }
+
+    // Sortable column headers
+    container.querySelectorAll('th[data-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        this._handleSort(th.dataset.sort);
+      });
+    });
 
     // Config action buttons
     container.querySelectorAll('.config-action-btn').forEach((btn) => {
@@ -985,7 +999,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._updateTabContent(tab.id);
 
     try {
-      const data = await this.browse(tab.path, tab.page_size || 100, 0);
+      const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
     } catch (error) {
@@ -1007,7 +1021,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._updateTabContent(tab.id);
 
     try {
-      const data = await this.browse(tab.path, tab.page_size || 100, tab.entries.length);
+      const data = await this.browse(tab.path, tab.page_size || 100, tab.entries.length, this._sortField, this._sortOrder);
       const newEntries = data.entries || [];
       for (const entry of newEntries) {
         tab.entries.push(entry);
@@ -1820,6 +1834,22 @@ class AeorFileBrowserBase extends HTMLElement {
   _truncate(str, max) {
     if (str.length <= max) return str;
     return str.substring(0, max - 1) + '\u2026';
+  }
+
+  _sortIndicator(field) {
+    if (this._sortField !== field) return '<span class="sort-indicator">\u2195</span>';
+    const arrow = (this._sortOrder === 'asc') ? '\u25B2' : '\u25BC';
+    return `<span class="sort-indicator active">${arrow}</span>`;
+  }
+
+  _handleSort(field) {
+    if (this._sortField === field) {
+      this._sortOrder = (this._sortOrder === 'asc') ? 'desc' : 'asc';
+    } else {
+      this._sortField = field;
+      this._sortOrder = 'asc';
+    }
+    this._fetchListing();
   }
 
   /**
