@@ -240,7 +240,8 @@ class AeorFileBrowserBase extends HTMLElement {
     for (const tab of this._tabs) {
       const isActive = (tab.id === this._active_tab_id);
       html += `<div class="tab-content" id="tab-content-${tab.id}" style="${isActive ? '' : 'display:none'}">`;
-      html += this._renderDirectoryViewFor(tab);
+      html += `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>`;
+      html += this._renderPreviewPanel(tab);
       html += '</div>';
     }
 
@@ -345,7 +346,11 @@ class AeorFileBrowserBase extends HTMLElement {
       ? this._renderGridViewFor(tab, visible)
       : this._renderListViewFor(tab, visible);
 
-    return `${header}${toolbarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>
+    return `${header}${toolbarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>`;
+  }
+
+  _renderPreviewPanel(tab) {
+    return `
       <div class="preview-panel" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
         <div class="preview-resize-handle"></div>
         <div class="preview-header">
@@ -440,11 +445,18 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._tabs.find((t) => t.id === tabId);
     if (!container || !tab) return;
 
-    // Preserve scroll position across re-render
+    // Only replace the listing area — preserve the preview panel
+    const listingArea = container.querySelector('.tab-listing-area');
     const listing = container.querySelector('.tab-listing');
     const scrollTop = (listing) ? listing.scrollTop : 0;
 
-    container.innerHTML = this._renderDirectoryViewFor(tab);
+    if (listingArea) {
+      listingArea.innerHTML = this._renderDirectoryViewFor(tab);
+    } else {
+      // Fallback: full rebuild (first render)
+      container.innerHTML = `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>${this._renderPreviewPanel(tab)}`;
+    }
+
     this._bindTabContentEvents(tabId);
 
     // Restore scroll position

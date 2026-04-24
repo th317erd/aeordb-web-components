@@ -134,6 +134,14 @@ input.preview-title {
   min-height: 0;
 }
 
+.tab-listing-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .tab-listing {
   flex: 1;
   overflow-y: auto;
