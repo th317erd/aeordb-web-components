@@ -1842,14 +1842,79 @@ class AeorFileBrowserBase extends HTMLElement {
     return `<span class="sort-indicator active">${arrow}</span>`;
   }
 
-  _handleSort(field) {
+  async _handleSort(field) {
     if (this._sortField === field) {
       this._sortOrder = (this._sortOrder === 'asc') ? 'desc' : 'asc';
     } else {
       this._sortField = field;
       this._sortOrder = 'asc';
     }
-    this._fetchListing();
+
+    const tab = this._activeTab();
+    if (!tab) return;
+
+    // Soft re-fetch: get sorted data without destroying the DOM
+    try {
+      const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
+      tab.entries = data.entries || [];
+      tab.total = (data.total != null) ? data.total : tab.entries.length;
+    } catch (error) {
+      console.error('Failed to fetch sorted listing:', error);
+      return;
+    }
+
+    // Update only the listing area — leave the preview panel intact
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    if (!container) return;
+
+    const listing = container.querySelector('.tab-listing');
+    if (!listing) return;
+
+    const visible = this._getVisibleEntries(tab);
+    const viewMode = tab.view_mode || 'list';
+
+    // Re-render listing content
+    if (visible.length === 0 && tab.entries.length === 0) {
+      listing.innerHTML = '<div class="empty-state">This directory is empty.</div>';
+    } else if (visible.length === 0 && tab.entries.length > 0) {
+      listing.innerHTML = `<div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div>`;
+    } else {
+      const hiddenCount = tab.entries.length - visible.length;
+      const countText = (tab.total != null)
+        ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
+        : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
+
+      const rendered = (viewMode === 'grid')
+        ? this._renderGridViewFor(tab, visible)
+        : this._renderListViewFor(tab, visible);
+
+      listing.innerHTML = `${rendered}<div class="entry-count">${countText}</div>`;
+    }
+
+    // Re-bind only the listing events (file clicks, sort headers, keyboard)
+    this._bindTabContentEvents(tab.id);
+
+    // Update sort indicators in the header
+    container.querySelectorAll('th[data-sort]').forEach((th) => {
+      const sortField = th.dataset.sort;
+      const indicatorHtml = this._sortIndicator(sortField);
+      const textNode = th.childNodes[0];
+      const label = textNode ? textNode.textContent.trim() : sortField;
+      th.innerHTML = `${label} ${indicatorHtml}`;
+    });
+
+    // Re-bind sort click handlers
+    container.querySelectorAll('th[data-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        this._handleSort(th.dataset.sort);
+      });
+    });
+
+    // Update selection visual
+    this._updateSelectionVisual(tab);
+
+    // Re-attach scroll listener
+    this._attachScrollListener();
   }
 
   /**
