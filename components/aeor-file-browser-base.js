@@ -1852,7 +1852,10 @@ class AeorFileBrowserBase extends HTMLElement {
       ]);
       if (usersResult.status === 'fulfilled') users = usersResult.value || [];
       if (groupsResult.status === 'fulfilled') groups = groupsResult.value || [];
-      if (sharesResult.status === 'fulfilled') currentShares = sharesResult.value || [];
+      if (sharesResult.status === 'fulfilled') {
+        const sharesData = sharesResult.value || {};
+        currentShares = sharesData.shares || [];
+      }
     } catch (error) {
       // continue with empty data
     }
@@ -1884,8 +1887,8 @@ class AeorFileBrowserBase extends HTMLElement {
     let sharesHtml = '';
     if (Array.isArray(currentShares) && currentShares.length > 0) {
       const shareRows = currentShares.map((s) => {
-        const target = s.group || s.user || s.user_id || 'Unknown';
-        const perm = s.permissions || s.access || '';
+        const target = s.username || s.display_name || s.group || 'Unknown';
+        const perm = s.allow || s.permissions || '';
         const pattern = s.path_pattern || s.path || '';
         return `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border, #30363d);">
