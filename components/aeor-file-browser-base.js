@@ -1870,14 +1870,28 @@ class AeorFileBrowserBase extends HTMLElement {
     const labelStyle = 'display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;';
 
     // Build user options (API returns { user_id, username })
-    const userOptions = users.map((u) => {
+    // Filter out root (already has access) and the current user (can't share with yourself)
+    const ROOT_UUID = '00000000-0000-0000-0000-000000000000';
+    const currentUserId = (typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId)
+      ? window.AUTH.currentUserId() : null;
+    const filteredUsers = users.filter((u) => {
+      const uid = String(u.user_id || u.id || '');
+      if (uid === ROOT_UUID) return false;
+      if (currentUserId && uid === currentUserId) return false;
+      return true;
+    });
+    const userOptions = filteredUsers.map((u) => {
       const label = u.username || u.user_id || '';
       const value = u.user_id || u.id || '';
       return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
     }).join('');
 
-    // Build group options
-    const groupOptions = groups.map((g) => {
+    // Build group options — filter out user:UUID auto-groups (redundant with Users selector)
+    const filteredGroups = groups.filter((g) => {
+      const name = g.name || g.group || '';
+      return !name.startsWith('user:');
+    });
+    const groupOptions = filteredGroups.map((g) => {
       const label = g.name || g.group || g.id || '';
       const value = g.name || g.group || g.id || '';
       return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
