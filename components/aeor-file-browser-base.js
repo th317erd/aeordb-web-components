@@ -2013,7 +2013,7 @@ class AeorFileBrowserBase extends HTMLElement {
         <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Permission Level</label>
           <select class="link-permission-select" style="${inputStyle}">
-            <option value="cr..l...">View only</option>
+            <option value="-r--l---">View only</option>
             <option value="crudl..." selected>Can edit</option>
             <option value="crudlify">Full access</option>
           </select>
