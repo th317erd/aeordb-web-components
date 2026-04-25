@@ -1869,9 +1869,9 @@ class AeorFileBrowserBase extends HTMLElement {
     `;
     const labelStyle = 'display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;';
 
-    // Build user options
+    // Build user options (API returns { user_id, username })
     const userOptions = users.map((u) => {
-      const label = u.label || u.user_id || u.name || u.id || '';
+      const label = u.username || u.user_id || '';
       const value = u.user_id || u.id || '';
       return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
     }).join('');
@@ -1923,6 +1923,7 @@ class AeorFileBrowserBase extends HTMLElement {
       <div class="share-tab-people">
         <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Users</label>
+          <input type="text" class="share-users-filter" placeholder="Search users..." style="${inputStyle} margin-bottom:4px;">
           <select class="share-users-select" multiple style="${inputStyle} min-height:80px;">
             ${userOptions}
           </select>
@@ -1931,18 +1932,30 @@ class AeorFileBrowserBase extends HTMLElement {
 
         <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Groups</label>
+          <input type="text" class="share-groups-filter" placeholder="Search groups..." style="${inputStyle} margin-bottom:4px;">
           <select class="share-groups-select" multiple style="${inputStyle} min-height:80px;">
             ${groupOptions}
           </select>
         </div>
 
-        <div style="margin-bottom:16px;">
+        <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Permission Level</label>
           <select class="share-permission-select" style="${inputStyle}">
             <option value="cr..l...">View only</option>
             <option value="crudl...">Can edit</option>
             <option value="crudlify">Full access</option>
+            <option value="custom">Custom</option>
           </select>
+        </div>
+        <div class="share-custom-flags" style="display:none;margin-bottom:16px;display:none;">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+            ${['Create','Read','Update','Delete','List','Invoke','Functions','Configure'].map((name, i) => {
+              const flag = 'crudlify'[i];
+              return `<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-secondary,#8b949e);cursor:pointer;">
+                <input type="checkbox" class="share-flag" data-index="${i}" data-flag="${flag}"> ${name}
+              </label>`;
+            }).join('')}
+          </div>
         </div>
 
         <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -1958,6 +1971,28 @@ class AeorFileBrowserBase extends HTMLElement {
     const usersSelect = body.querySelector('.share-users-select');
     const groupsSelect = body.querySelector('.share-groups-select');
     const permSelect = body.querySelector('.share-permission-select');
+    const customFlags = body.querySelector('.share-custom-flags');
+
+    // Toggle custom flags visibility
+    permSelect.addEventListener('change', () => {
+      customFlags.style.display = permSelect.value === 'custom' ? 'block' : 'none';
+    });
+
+    // Search filter for user select
+    body.querySelector('.share-users-filter').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      for (const opt of usersSelect.options) {
+        opt.style.display = opt.text.toLowerCase().includes(q) ? '' : 'none';
+      }
+    });
+
+    // Search filter for group select
+    body.querySelector('.share-groups-filter').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      for (const opt of groupsSelect.options) {
+        opt.style.display = opt.text.toLowerCase().includes(q) ? '' : 'none';
+      }
+    });
 
     let resolved = false;
     const done = () => {
@@ -1966,11 +2001,21 @@ class AeorFileBrowserBase extends HTMLElement {
       modal.remove();
     };
 
+    // Build permission string from custom flags or preset
+    const getPermissionString = () => {
+      if (permSelect.value !== 'custom') return permSelect.value;
+      const flags = ['.','.','.','.','.','.','.','.'];
+      body.querySelectorAll('.share-flag').forEach((cb) => {
+        if (cb.checked) flags[parseInt(cb.dataset.index)] = cb.dataset.flag;
+      });
+      return flags.join('');
+    };
+
     // Submit share
     body.querySelector('.share-submit').addEventListener('click', async () => {
       const selectedUsers = Array.from(usersSelect.selectedOptions).map((o) => o.value);
       const selectedGroups = Array.from(groupsSelect.selectedOptions).map((o) => o.value);
-      const permLevel = permSelect.value;
+      const permLevel = getPermissionString();
 
       if (selectedUsers.length === 0 && selectedGroups.length === 0) {
         if (window.aeorToast)
