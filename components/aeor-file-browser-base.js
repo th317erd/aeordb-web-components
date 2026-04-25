@@ -124,6 +124,27 @@ class AeorFileBrowserBase extends HTMLElement {
     throw new Error('AeorFileBrowserBase.readFile() must be implemented by subclass');
   }
 
+  // getShares(path) → array of current share entries for a path
+  async getShares(path) {
+    throw new Error('AeorFileBrowserBase.getShares() must be implemented by subclass');
+  }
+
+  // share(paths, users, groups, permissions) — grant access
+  async share(paths, users, groups, permissions) {
+    throw new Error('AeorFileBrowserBase.share() must be implemented by subclass');
+  }
+
+  // unshare(path, group, pathPattern) — revoke access
+  async unshare(path, group, pathPattern) {
+    throw new Error('AeorFileBrowserBase.unshare() must be implemented by subclass');
+  }
+
+  // getShareableUsers() → array of users that can receive shares
+  async getShareableUsers() { return []; }
+
+  // getShareableGroups() → array of groups that can receive shares
+  async getShareableGroups() { return []; }
+
   // -------------------------------------------------------------------------
   // Hook methods — subclasses CAN override these
   // -------------------------------------------------------------------------
@@ -1809,6 +1830,185 @@ class AeorFileBrowserBase extends HTMLElement {
     return Math.round(seconds / 3600) + 'h ' + Math.round((seconds % 3600) / 60) + 'm';
   }
 
+  async _showShareModal(paths) {
+    if (!paths || paths.length === 0) return;
+
+    const modal = document.createElement('aeor-modal');
+    modal.title = 'Share';
+
+    // Show a loading state while we fetch data
+    modal.innerHTML = '<div style="color: var(--text-secondary, #8b949e);">Loading...</div>';
+    document.body.appendChild(modal);
+
+    // Fetch users, groups, and current shares in parallel
+    let users = [];
+    let groups = [];
+    let currentShares = [];
+    try {
+      const [usersResult, groupsResult, sharesResult] = await Promise.allSettled([
+        this.getShareableUsers(),
+        this.getShareableGroups(),
+        this.getShares(paths[0]),
+      ]);
+      if (usersResult.status === 'fulfilled') users = usersResult.value || [];
+      if (groupsResult.status === 'fulfilled') groups = groupsResult.value || [];
+      if (sharesResult.status === 'fulfilled') currentShares = sharesResult.value || [];
+    } catch (error) {
+      // continue with empty data
+    }
+
+    const fileNames = paths.map((p) => p.split('/').pop()).join(', ');
+    const inputStyle = `
+      width: 100%; padding: 8px 12px;
+      background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
+      border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
+      font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
+    `;
+    const labelStyle = 'display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;';
+
+    // Build user options
+    const userOptions = users.map((u) => {
+      const label = u.label || u.user_id || u.name || u.id || '';
+      const value = u.user_id || u.id || '';
+      return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
+    }).join('');
+
+    // Build group options
+    const groupOptions = groups.map((g) => {
+      const label = g.name || g.group || g.id || '';
+      const value = g.name || g.group || g.id || '';
+      return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
+    }).join('');
+
+    // Build current shares list
+    let sharesHtml = '';
+    if (Array.isArray(currentShares) && currentShares.length > 0) {
+      const shareRows = currentShares.map((s) => {
+        const target = s.group || s.user || s.user_id || 'Unknown';
+        const perm = s.permissions || s.access || '';
+        const pattern = s.path_pattern || s.path || '';
+        return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border, #30363d);">
+            <div>
+              <span style="color:var(--text-primary, #e6edf3);">${escapeHtml(target)}</span>
+              <span style="color:var(--text-secondary, #8b949e);font-size:0.8rem;margin-left:8px;">${escapeHtml(perm)}</span>
+            </div>
+            <button class="danger small share-revoke-btn" data-group="${escapeAttr(s.group || '')}" data-pattern="${escapeAttr(pattern)}">&times;</button>
+          </div>
+        `;
+      }).join('');
+      sharesHtml = `
+        <div style="margin-top:16px;border-top:1px solid var(--border, #30363d);padding-top:12px;">
+          <div style="${labelStyle}">Current Shares</div>
+          ${shareRows}
+        </div>
+      `;
+    }
+
+    // Populate modal body
+    const body = modal.querySelector('.aeor-modal__body');
+    body.innerHTML = `
+      <div style="margin-bottom:12px;color:var(--text-secondary, #8b949e);font-size:0.85rem;">
+        Sharing: ${escapeHtml(fileNames)}${(paths.length > 1) ? ` (${paths.length} items)` : ''}
+      </div>
+
+      <div style="display:flex;gap:4px;margin-bottom:16px;">
+        <button class="small primary share-tab-btn" data-share-tab="people" style="flex:1;">People</button>
+        <button class="small secondary share-tab-btn" data-share-tab="link" style="flex:1;opacity:0.5;cursor:not-allowed;" disabled>Link (Phase 2)</button>
+      </div>
+
+      <div class="share-tab-people">
+        <div style="margin-bottom:12px;">
+          <label style="${labelStyle}">Users</label>
+          <select class="share-users-select" multiple style="${inputStyle} min-height:80px;">
+            ${userOptions}
+          </select>
+          <div style="font-size:0.75rem;color:var(--text-secondary, #8b949e);margin-top:4px;">Hold Ctrl/Cmd to select multiple</div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="${labelStyle}">Groups</label>
+          <select class="share-groups-select" multiple style="${inputStyle} min-height:80px;">
+            ${groupOptions}
+          </select>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="${labelStyle}">Permission Level</label>
+          <select class="share-permission-select" style="${inputStyle}">
+            <option value="cr..l...">View only</option>
+            <option value="crudl...">Can edit</option>
+            <option value="crudlify">Full access</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button class="secondary small share-cancel">Cancel</button>
+          <button class="primary small share-submit">Share</button>
+        </div>
+      </div>
+
+      ${sharesHtml}
+    `;
+
+    // Bind events
+    const usersSelect = body.querySelector('.share-users-select');
+    const groupsSelect = body.querySelector('.share-groups-select');
+    const permSelect = body.querySelector('.share-permission-select');
+
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      modal.remove();
+    };
+
+    // Submit share
+    body.querySelector('.share-submit').addEventListener('click', async () => {
+      const selectedUsers = Array.from(usersSelect.selectedOptions).map((o) => o.value);
+      const selectedGroups = Array.from(groupsSelect.selectedOptions).map((o) => o.value);
+      const permLevel = permSelect.value;
+
+      if (selectedUsers.length === 0 && selectedGroups.length === 0) {
+        if (window.aeorToast)
+          window.aeorToast('Select at least one user or group', 'error');
+        return;
+      }
+
+      try {
+        await this.share(paths, selectedUsers, selectedGroups, permLevel);
+        if (window.aeorToast)
+          window.aeorToast('Shared successfully', 'success');
+        done();
+      } catch (error) {
+        if (window.aeorToast)
+          window.aeorToast('Share failed: ' + error.message, 'error');
+      }
+    });
+
+    // Cancel
+    body.querySelector('.share-cancel').addEventListener('click', done);
+    modal.addEventListener('close', done);
+
+    // Revoke buttons
+    body.querySelectorAll('.share-revoke-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const group = btn.dataset.group;
+        const pattern = btn.dataset.pattern;
+        try {
+          await this.unshare(paths[0], group, pattern);
+          if (window.aeorToast)
+            window.aeorToast('Share revoked', 'success');
+          // Remove the row from DOM
+          btn.closest('div[style]').remove();
+        } catch (error) {
+          if (window.aeorToast)
+            window.aeorToast('Revoke failed: ' + error.message, 'error');
+        }
+      });
+    });
+  }
+
   _showContextMenu(x, y, entry) {
     const existing = this.querySelector('.context-menu');
     if (existing) existing.remove();
@@ -1819,6 +2019,7 @@ class AeorFileBrowserBase extends HTMLElement {
     menu.style.top = y + 'px';
     menu.innerHTML = `
       <div class="context-menu-item" data-context="preview">Preview</div>
+      <div class="context-menu-item" data-context="share">Share</div>
       <div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>
     `;
 
@@ -1834,6 +2035,11 @@ class AeorFileBrowserBase extends HTMLElement {
             activeTab.preview_component = null;
           }
           this._loadPreview();
+        } else if (item.dataset.context === 'share') {
+          if (activeTab) {
+            const filePath = activeTab.path.replace(/\/$/, '') + '/' + entry.name;
+            this._showShareModal([filePath]);
+          }
         } else {
           if (activeTab) activeTab.preview_entry = entry;
           this._handlePreviewAction(item.dataset.context);

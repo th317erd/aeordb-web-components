@@ -123,6 +123,48 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   // ---------------------------------------------------------------------------
+  // Share method implementations
+  // ---------------------------------------------------------------------------
+
+  async getShares(path) {
+    const response = await window.api(`/files/shares?path=${encodeURIComponent(path)}`);
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async share(paths, users, groups, permissions) {
+    const response = await window.api('/files/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, users, groups, permissions }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+  }
+
+  async unshare(path, group, pathPattern) {
+    const response = await window.api('/files/shares', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, group, path_pattern: pathPattern }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+  }
+
+  async getShareableUsers() {
+    const response = await window.api('/auth/keys/users');
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.items || [];
+  }
+
+  async getShareableGroups() {
+    const response = await window.api('/system/groups');
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.items || [];
+  }
+
+  // ---------------------------------------------------------------------------
   // Hook overrides
   // ---------------------------------------------------------------------------
 
@@ -149,17 +191,30 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   previewActions(entry) {
-    return '<button class="primary small" data-action="download">Download</button>';
+    return `
+      <button class="secondary small" data-action="share">Share</button>
+      <button class="primary small" data-action="download">Download</button>
+    `;
   }
 
   selectionActions(tab) {
-    return '<button class="primary small selection-download-zip">Download ZIP</button>';
+    return `
+      <button class="secondary small selection-share">Share</button>
+      <button class="primary small selection-download-zip">Download ZIP</button>
+    `;
   }
 
   _bindSelectionBarExtra(selectionBar, tab) {
     const zipBtn = selectionBar.querySelector('.selection-download-zip');
     if (zipBtn) {
       zipBtn.addEventListener('click', () => this._downloadSelectedAsZip());
+    }
+    const shareBtn = selectionBar.querySelector('.selection-share');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', () => {
+        const paths = [...tab.selectedEntries];
+        if (paths.length > 0) this._showShareModal(paths);
+      });
     }
   }
 
@@ -188,6 +243,13 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   // ---------------------------------------------------------------------------
 
   async _handlePreviewAction(action) {
+    if (action === 'share') {
+      const tab = this._activeTab();
+      if (!tab || !tab.preview_entry) return;
+      const filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
+      this._showShareModal([filePath]);
+      return;
+    }
     if (action === 'download') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
