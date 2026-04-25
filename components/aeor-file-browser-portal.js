@@ -12,6 +12,17 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     }
   }
 
+  /**
+   * Navigate the active tab to the given path (used by share link routing).
+   */
+  navigateTo(path) {
+    const tab = this._activeTab();
+    if (tab) {
+      tab.path = path.endsWith('/') ? path : path + '/';
+      this._updateTabContent(tab.id);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Abstract method implementations
   // ---------------------------------------------------------------------------
@@ -162,6 +173,34 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (!response.ok) return [];
     const data = await response.json();
     return data.items || [];
+  }
+
+  async createShareLink(paths, permissions, expiresInDays) {
+    const response = await window.api('/files/share-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paths,
+        permissions,
+        expires_in_days: expiresInDays,
+        base_url: window.location.origin,
+      }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async getShareLinks(path) {
+    const response = await window.api(`/files/share-links?path=${encodeURIComponent(path)}`);
+    if (!response.ok) return { links: [] };
+    return response.json();
+  }
+
+  async revokeShareLink(keyId) {
+    const response = await window.api(`/files/share-links/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
   }
 
   // ---------------------------------------------------------------------------

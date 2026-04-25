@@ -145,6 +145,19 @@ class AeorFileBrowserBase extends HTMLElement {
   // getShareableGroups() → array of groups that can receive shares
   async getShareableGroups() { return []; }
 
+  // createShareLink(paths, permissions, expiresInDays) → { url, key_id, ... }
+  async createShareLink(paths, permissions, expiresInDays) {
+    throw new Error('AeorFileBrowserBase.createShareLink() must be implemented by subclass');
+  }
+
+  // getShareLinks(path) → { links: [...] }
+  async getShareLinks(path) { return { links: [] }; }
+
+  // revokeShareLink(keyId) — revoke a share link
+  async revokeShareLink(keyId) {
+    throw new Error('AeorFileBrowserBase.revokeShareLink() must be implemented by subclass');
+  }
+
   // -------------------------------------------------------------------------
   // Hook methods — subclasses CAN override these
   // -------------------------------------------------------------------------
@@ -1860,6 +1873,13 @@ class AeorFileBrowserBase extends HTMLElement {
       // continue with empty data
     }
 
+    // Fetch active share links (non-critical)
+    let activeLinks = [];
+    try {
+      const linksData = await this.getShareLinks(paths[0]);
+      activeLinks = linksData.links || [];
+    } catch (e) { /* non-critical */ }
+
     const fileNames = paths.map((p) => p.split('/').pop()).join(', ');
     const inputStyle = `
       width: 100%; padding: 8px 12px;
@@ -1922,6 +1942,17 @@ class AeorFileBrowserBase extends HTMLElement {
       `;
     }
 
+    // Build active share links HTML for Link tab
+    const linkSharesHtml = activeLinks.length > 0 ? activeLinks.map((l) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border, #30363d);">
+        <div>
+          <span style="color:var(--text-primary, #e6edf3);font-size:0.85rem;">${escapeHtml(l.label || 'Share link')}</span>
+          <span style="color:var(--text-secondary, #8b949e);font-size:0.75rem;margin-left:8px;">${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires'}</span>
+        </div>
+        <button class="danger small link-revoke-btn" data-key-id="${escapeAttr(l.key_id)}">&times;</button>
+      </div>
+    `).join('') : '<div style="color:var(--text-secondary, #8b949e);padding:8px 0;font-size:0.85rem;">No active links</div>';
+
     // Populate modal body
     const body = modal.querySelector('.aeor-modal__body');
     body.innerHTML = `
@@ -1931,7 +1962,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
       <div style="display:flex;gap:4px;margin-bottom:16px;">
         <button class="small primary share-tab-btn" data-share-tab="people" style="flex:1;">People</button>
-        <button class="small secondary share-tab-btn" data-share-tab="link" style="flex:1;opacity:0.5;cursor:not-allowed;" disabled>Link (Phase 2)</button>
+        <button class="small secondary share-tab-btn" data-share-tab="link" style="flex:1;">Link</button>
       </div>
 
       <div class="share-tab-people">
@@ -1978,8 +2009,59 @@ class AeorFileBrowserBase extends HTMLElement {
         </div>
       </div>
 
+      <div class="share-tab-link" style="display:none;">
+        <div style="margin-bottom:12px;">
+          <label style="${labelStyle}">Permission Level</label>
+          <select class="link-permission-select" style="${inputStyle}">
+            <option value="cr..l...">View only</option>
+            <option value="crudl..." selected>Can edit</option>
+            <option value="crudlify">Full access</option>
+          </select>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="${labelStyle}">Expiration</label>
+          <select class="link-expiry-select" style="${inputStyle}">
+            <option value="">Never</option>
+            <option value="1">1 day</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">1 year</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:16px;">
+          <button class="primary small link-create-btn">Create Link</button>
+        </div>
+        <div class="link-result" style="display:none;margin-bottom:16px;">
+          <label style="${labelStyle}">Share URL</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="link-url-input" readonly style="${inputStyle} flex:1;">
+            <button class="secondary small link-copy-btn">Copy</button>
+          </div>
+        </div>
+        <div class="link-active-links">${linkSharesHtml}</div>
+      </div>
+
       ${sharesHtml}
     `;
+
+    // Tab switching
+    body.querySelectorAll('.share-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        body.querySelectorAll('.share-tab-btn').forEach((b) => {
+          b.classList.remove('primary');
+          b.classList.add('secondary');
+        });
+        btn.classList.remove('secondary');
+        btn.classList.add('primary');
+        const tab = btn.dataset.shareTab;
+        const peopleContent = body.querySelector('.share-tab-people');
+        const linkContent = body.querySelector('.share-tab-link');
+        if (peopleContent) peopleContent.style.display = tab === 'people' ? '' : 'none';
+        if (linkContent) linkContent.style.display = tab === 'link' ? '' : 'none';
+      });
+    });
 
     // Bind events
     const usersSelect = body.querySelector('.share-users-select');
@@ -2052,7 +2134,7 @@ class AeorFileBrowserBase extends HTMLElement {
     body.querySelector('.share-cancel').addEventListener('click', done);
     modal.addEventListener('close', done);
 
-    // Revoke buttons
+    // Revoke buttons (People tab)
     body.querySelectorAll('.share-revoke-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const group = btn.dataset.group;
@@ -2066,6 +2148,49 @@ class AeorFileBrowserBase extends HTMLElement {
         } catch (error) {
           if (window.aeorToast)
             window.aeorToast('Revoke failed: ' + error.message, 'error');
+        }
+      });
+    });
+
+    // Create Link button
+    const linkCreateBtn = body.querySelector('.link-create-btn');
+    if (linkCreateBtn) {
+      linkCreateBtn.addEventListener('click', async () => {
+        const permLevel = body.querySelector('.link-permission-select').value;
+        const expiryDays = body.querySelector('.link-expiry-select').value;
+        const expires = expiryDays ? parseInt(expiryDays) : null;
+        try {
+          const result = await this.createShareLink(paths, permLevel, expires);
+          const resultDiv = body.querySelector('.link-result');
+          const urlInput = body.querySelector('.link-url-input');
+          resultDiv.style.display = '';
+          urlInput.value = result.url;
+          if (window.aeorToast) window.aeorToast('Share link created', 'success');
+        } catch (error) {
+          if (window.aeorToast) window.aeorToast('Failed: ' + error.message, 'error');
+        }
+      });
+    }
+
+    // Copy button
+    const linkCopyBtn = body.querySelector('.link-copy-btn');
+    if (linkCopyBtn) {
+      linkCopyBtn.addEventListener('click', () => {
+        const urlInput = body.querySelector('.link-url-input');
+        navigator.clipboard.writeText(urlInput.value);
+        if (window.aeorToast) window.aeorToast('Copied to clipboard', 'success');
+      });
+    }
+
+    // Revoke buttons (Link tab)
+    body.querySelectorAll('.link-revoke-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await this.revokeShareLink(btn.dataset.keyId);
+          btn.closest('div[style]').remove();
+          if (window.aeorToast) window.aeorToast('Link revoked', 'success');
+        } catch (error) {
+          if (window.aeorToast) window.aeorToast('Revoke failed: ' + error.message, 'error');
         }
       });
     });
