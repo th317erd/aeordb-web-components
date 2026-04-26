@@ -17,10 +17,16 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
    */
   navigateTo(path) {
     const tab = this._activeTab();
-    if (tab) {
-      tab.path = path.endsWith('/') ? path : path + '/';
-      this._updateTabContent(tab.id);
+    if (!tab) return;
+    if (path.endsWith('/')) {
+      // Directory — navigate directly
+      tab.path = path;
+    } else {
+      // File — navigate to parent directory
+      const lastSlash = path.lastIndexOf('/');
+      tab.path = lastSlash > 0 ? path.substring(0, lastSlash + 1) : '/';
     }
+    this._updateTabContent(tab.id);
   }
 
   // ---------------------------------------------------------------------------
