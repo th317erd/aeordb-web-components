@@ -19,14 +19,14 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     const tab = this._activeTab();
     if (!tab) return;
     if (path.endsWith('/')) {
-      // Directory — navigate directly
       tab.path = path;
     } else {
       // File — navigate to parent directory
       const lastSlash = path.lastIndexOf('/');
       tab.path = lastSlash > 0 ? path.substring(0, lastSlash + 1) : '/';
     }
-    this._updateTabContent(tab.id);
+    // Must fetch listing (not just re-render) to load data from the new path
+    this._fetchListing();
   }
 
   // ---------------------------------------------------------------------------
