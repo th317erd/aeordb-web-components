@@ -4,12 +4,16 @@ import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
 
 export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   connectedCallback() {
+    // For share sessions, clear saved state so we always start fresh
+    // at the shared path (not wherever the user last navigated).
+    if (window.AUTH && window.AUTH._isShareSession) {
+      localStorage.removeItem('aeordb-file-browser');
+    }
+
     super.connectedCallback();
 
     // Auto-open a tab if none were restored from localStorage
     if (!this._active_tab_id) {
-      // For share sessions, start at the shared path instead of root.
-      // This must be set BEFORE _openTab so only one _fetchListing fires.
       let initPath = '/';
       if (window.AUTH && window.AUTH._isShareSession) {
         const params = new URLSearchParams(window.location.search);
