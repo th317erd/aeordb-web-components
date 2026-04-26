@@ -858,13 +858,13 @@ class AeorFileBrowserBase extends HTMLElement {
   // Tab lifecycle
   // -------------------------------------------------------------------------
 
-  _openTab(id, name) {
+  _openTab(id, name, initialPath) {
     this._tab_counter++;
     const tabId = 'tab-' + this._tab_counter;
     this._tabs.push({
       id:                tabId,
       name:              name || tabId,
-      path:              '/',
+      path:              initialPath || '/',
       view_mode:         'list',
       entries:           [],
       total:             null,
