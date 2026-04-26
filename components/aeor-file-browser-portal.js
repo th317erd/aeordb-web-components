@@ -52,9 +52,9 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
 
   async browse(path, limit, offset, sort, order) {
     // AeorDB route is /files/{*path} — root requires %2F
-    const filesPath = (path && path !== '/')
-      ? `/files/${path}`
-      : '/files/%2F';
+    // Strip leading slash to avoid double-slash in URL (e.g. /files//test/)
+    const cleanPath = (path && path !== '/') ? path.replace(/^\//, '') : null;
+    const filesPath = cleanPath ? `/files/${cleanPath}` : '/files/%2F';
     let qs = `?limit=${limit}&offset=${offset}`;
     if (sort) qs += `&sort=${sort}`;
     if (order) qs += `&order=${order}`;
