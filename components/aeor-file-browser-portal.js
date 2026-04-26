@@ -8,7 +8,24 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
 
     // Auto-open a tab if none were restored from localStorage
     if (!this._active_tab_id) {
+      // For share sessions, start at the shared path instead of root
+      const params = new URLSearchParams(window.location.search);
+      const sharePath = (window.AUTH && window.AUTH._isShareSession) ? params.get('path') : null;
       this._openTab('portal', 'Database');
+      if (sharePath) {
+        // Override the initial path before the first fetch completes
+        const tab = this._activeTab();
+        if (tab) {
+          if (sharePath.endsWith('/')) {
+            tab.path = sharePath;
+          } else {
+            const lastSlash = sharePath.lastIndexOf('/');
+            tab.path = lastSlash > 0 ? sharePath.substring(0, lastSlash + 1) : '/';
+          }
+          // Re-fetch with the correct path (cancels the root listing race)
+          this._fetchListing();
+        }
+      }
     }
   }
 
