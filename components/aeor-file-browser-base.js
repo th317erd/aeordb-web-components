@@ -159,6 +159,39 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   // -------------------------------------------------------------------------
+  // Permission helpers
+  // -------------------------------------------------------------------------
+
+  /** Check if a CRUDLIFY permission is available.
+   *  Flags: c=create, r=read, u=update, d=delete, l=list, i=invoke, f=functions, y=configure
+   *  If entry is provided, checks entry.effective_permissions (from server listing).
+   *  If no entry or no effective_permissions, checks tab-level or defaults to all-allowed. */
+  _hasPermission(flag, entry) {
+    const perms = (entry && entry.effective_permissions)
+      ? entry.effective_permissions
+      : this._currentDirectoryPermissions();
+    if (!perms) return true; // no restrictions known — allow (server enforces)
+    const idx = 'crudlify'.indexOf(flag);
+    if (idx < 0 || idx >= perms.length) return false;
+    return perms[idx] !== '-';
+  }
+
+  /** Get the effective permissions for the current directory.
+   *  Checks: listing items' effective_permissions → share session fallback → null (full access). */
+  _currentDirectoryPermissions() {
+    const tab = this._activeTab ? this._activeTab() : null;
+    if (tab && tab.entries && tab.entries.length > 0) {
+      const first = tab.entries.find(e => e.effective_permissions);
+      if (first) return first.effective_permissions;
+    }
+    // Fallback: share session URL perm param
+    if (typeof window !== 'undefined' && window.AUTH && window.AUTH._sharePermissions) {
+      return window.AUTH._sharePermissions;
+    }
+    return null; // normal session — all allowed, server enforces
+  }
+
+  // -------------------------------------------------------------------------
   // Hook methods — subclasses CAN override these
   // -------------------------------------------------------------------------
 
@@ -333,10 +366,10 @@ class AeorFileBrowserBase extends HTMLElement {
         ${breadcrumbs}
         <div style="display: flex; gap: 8px; align-items: center;">
           ${configBar}
-          ${(typeof window !== 'undefined' && window.AUTH && window.AUTH._isShareSession) ? '' : `
+          ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
-          <input type="file" class="upload-input" style="display:none" multiple>`}
+          <input type="file" class="upload-input" style="display:none" multiple>` : ''}
         </div>
       </div>
     `;
@@ -2205,11 +2238,11 @@ class AeorFileBrowserBase extends HTMLElement {
     menu.className = 'context-menu';
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
-    const isShareSession = typeof window !== 'undefined' && window.AUTH && window.AUTH._isShareSession;
     menu.innerHTML = `
       <div class="context-menu-item" data-context="preview">Preview</div>
-      ${isShareSession ? '' : '<div class="context-menu-item" data-context="share">Share</div>'}
-      ${isShareSession ? '' : '<div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>'}
+      ${this._hasPermission('y') ? '<div class="context-menu-item" data-context="share">Share</div>' : ''}
+      ${this._hasPermission('u') ? '<div class="context-menu-item" data-context="rename">Rename</div>' : ''}
+      ${this._hasPermission('d') ? '<div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>' : ''}
     `;
 
     this.appendChild(menu);

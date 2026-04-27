@@ -70,6 +70,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         content_type: item.content_type || 'application/octet-stream',
         created_at: item.created_at,
         updated_at: item.updated_at,
+        effective_permissions: item.effective_permissions || null,
       })),
       total: (data.total != null) ? data.total : items.length,
     };
@@ -252,18 +253,18 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   previewActions(entry) {
-    const isShare = window.AUTH && window.AUTH._isShareSession;
     return `
-      ${isShare ? '' : '<button class="secondary small" data-action="share">Share</button>'}
+      ${this._hasPermission('y') ? '<button class="secondary small" data-action="share">Share</button>' : ''}
       <button class="primary small" data-action="download">Download</button>
+      ${this._hasPermission('d') ? '<button class="danger small" data-action="delete">Delete</button>' : ''}
     `;
   }
 
   selectionActions(tab) {
-    const isShare = window.AUTH && window.AUTH._isShareSession;
     return `
-      ${isShare ? '' : '<button class="secondary small selection-share">Share</button>'}
+      ${this._hasPermission('y') ? '<button class="secondary small selection-share">Share</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
+      ${this._hasPermission('d') ? '<button class="danger small selection-delete">Delete Selected</button>' : ''}
     `;
   }
 
