@@ -558,7 +558,10 @@ class AeorFileBrowserBase extends HTMLElement {
     const titleInput = panel.querySelector('.preview-title');
     titleInput.value = entry.name;
     titleInput.dataset.original = entry.name;
-    titleInput.readOnly = !this._hasPermission('u', entry);
+    const canRename = this._hasPermission('u', entry);
+    titleInput.readOnly = !canRename;
+    titleInput.tabIndex = canRename ? 0 : -1;
+    titleInput.style.pointerEvents = canRename ? '' : 'none';
 
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
