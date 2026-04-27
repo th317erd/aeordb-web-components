@@ -725,20 +725,18 @@ class AeorFileBrowserBase extends HTMLElement {
         const isShift = event.shiftKey;
 
         if (!isCtrl && !isShift) {
-          // Plain click — navigate directory or single-select file
-          if (entryType === ENTRY_TYPE_DIR) {
-            this._navigateTo(entryPath + '/');
-            return;
-          }
+          // Plain click — select (files and directories alike)
           tab.selectedEntries.clear();
           tab.selectedEntries.add(entryPath);
           tab.lastSelectedAnchor = entryPath;
           this._updateSelectionVisual(tab);
 
-          // Preview the single file
-          tab.preview_entry = tab.entries.find((e) => e.name === entryName) || null;
-          tab.preview_component = null;
-          this._loadPreview();
+          // Preview for files only (directories don't have previews)
+          if (entryType !== ENTRY_TYPE_DIR) {
+            tab.preview_entry = tab.entries.find((e) => e.name === entryName) || null;
+            tab.preview_component = null;
+            this._loadPreview();
+          }
         } else if (isCtrl) {
           // Ctrl+Click — toggle individual entry
           if (tab.selectedEntries.has(entryPath))
@@ -765,12 +763,18 @@ class AeorFileBrowserBase extends HTMLElement {
         }
       });
 
-      // Context menu
+      // Double-click — navigate into directory
+      el.addEventListener('dblclick', () => {
+        const entryType = parseInt(el.dataset.type, 10);
+        if (entryType === ENTRY_TYPE_DIR) {
+          const entryPath = tab.path.replace(/\/$/, '') + '/' + el.dataset.name;
+          this._navigateTo(entryPath + '/');
+        }
+      });
+
+      // Context menu (files and directories)
       el.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        const entryType = parseInt(el.dataset.type, 10);
-        if (entryType === ENTRY_TYPE_DIR) return;
-
         const entry = tab.entries.find((e) => e.name === el.dataset.name);
         if (!entry) return;
 
