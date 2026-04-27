@@ -252,15 +252,17 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   previewActions(entry) {
+    const isShare = window.AUTH && window.AUTH._isShareSession;
     return `
-      <button class="secondary small" data-action="share">Share</button>
+      ${isShare ? '' : '<button class="secondary small" data-action="share">Share</button>'}
       <button class="primary small" data-action="download">Download</button>
     `;
   }
 
   selectionActions(tab) {
+    const isShare = window.AUTH && window.AUTH._isShareSession;
     return `
-      <button class="secondary small selection-share">Share</button>
+      ${isShare ? '' : '<button class="secondary small selection-share">Share</button>'}
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }

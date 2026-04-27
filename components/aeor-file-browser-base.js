@@ -333,9 +333,10 @@ class AeorFileBrowserBase extends HTMLElement {
         ${breadcrumbs}
         <div style="display: flex; gap: 8px; align-items: center;">
           ${configBar}
+          ${(typeof window !== 'undefined' && window.AUTH && window.AUTH._isShareSession) ? '' : `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
-          <input type="file" class="upload-input" style="display:none" multiple>
+          <input type="file" class="upload-input" style="display:none" multiple>`}
         </div>
       </div>
     `;
@@ -2204,10 +2205,11 @@ class AeorFileBrowserBase extends HTMLElement {
     menu.className = 'context-menu';
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
+    const isShareSession = typeof window !== 'undefined' && window.AUTH && window.AUTH._isShareSession;
     menu.innerHTML = `
       <div class="context-menu-item" data-context="preview">Preview</div>
-      <div class="context-menu-item" data-context="share">Share</div>
-      <div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>
+      ${isShareSession ? '' : '<div class="context-menu-item" data-context="share">Share</div>'}
+      ${isShareSession ? '' : '<div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>'}
     `;
 
     this.appendChild(menu);
