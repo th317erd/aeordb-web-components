@@ -1999,9 +1999,9 @@ class AeorFileBrowserBase extends HTMLElement {
         Sharing: ${escapeHtml(fileNames)}${(paths.length > 1) ? ` (${paths.length} items)` : ''}
       </div>
 
-      <div style="display:flex;gap:4px;margin-bottom:16px;">
-        <button class="small primary share-tab-btn" data-share-tab="people" style="flex:1;">People</button>
-        <button class="small secondary share-tab-btn" data-share-tab="link" style="flex:1;">Link</button>
+      <div class="tab-bar" style="margin-bottom:16px;">
+        <div class="tab active share-tab-btn" data-share-tab="people">People</div>
+        <div class="tab share-tab-btn" data-share-tab="link">Link</div>
       </div>
 
       <div class="share-tab-people">
@@ -2031,15 +2031,8 @@ class AeorFileBrowserBase extends HTMLElement {
             <option value="custom">Custom</option>
           </select>
         </div>
-        <div class="share-custom-flags" style="display:none;margin-bottom:16px;display:none;">
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
-            ${['Create','Read','Update','Delete','List','Invoke','Functions','Configure'].map((name, i) => {
-              const flag = 'crudlify'[i];
-              return `<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-secondary,#8b949e);cursor:pointer;">
-                <input type="checkbox" class="share-flag" data-index="${i}" data-flag="${flag}"> ${name}
-              </label>`;
-            }).join('')}
-          </div>
+        <div class="share-custom-flags" style="display:none;margin-bottom:16px;">
+          <aeor-crudlify class="share-crudlify" value="--------"></aeor-crudlify>
         </div>
 
         <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -2055,7 +2048,11 @@ class AeorFileBrowserBase extends HTMLElement {
             <option value="-r--l---">View only</option>
             <option value="crudl..." selected>Can edit</option>
             <option value="crudlify">Full access</option>
+            <option value="custom">Custom</option>
           </select>
+        </div>
+        <div class="link-custom-flags" style="display:none;margin-bottom:12px;">
+          <aeor-crudlify class="link-crudlify" value="--------"></aeor-crudlify>
         </div>
         <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Expiration</label>
@@ -2074,8 +2071,8 @@ class AeorFileBrowserBase extends HTMLElement {
         <div class="link-result" style="display:none;margin-bottom:16px;">
           <label style="${labelStyle}">Share URL</label>
           <div style="display:flex;gap:8px;">
-            <input type="text" class="link-url-input" readonly style="${inputStyle} flex:1;">
-            <button class="secondary small link-copy-btn">Copy</button>
+            <input type="text" class="link-url-input" readonly style="${inputStyle} flex:1;" onfocus="this.select()">
+            <button class="secondary small link-copy-btn" style="min-width:70px;transition:background 0.3s,color 0.3s;">Copy</button>
           </div>
         </div>
         <div class="link-active-links">${linkSharesHtml}</div>
@@ -2087,13 +2084,8 @@ class AeorFileBrowserBase extends HTMLElement {
     // Tab switching
     body.querySelectorAll('.share-tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        if (btn.disabled) return;
-        body.querySelectorAll('.share-tab-btn').forEach((b) => {
-          b.classList.remove('primary');
-          b.classList.add('secondary');
-        });
-        btn.classList.remove('secondary');
-        btn.classList.add('primary');
+        body.querySelectorAll('.share-tab-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
         const tab = btn.dataset.shareTab;
         const peopleContent = body.querySelector('.share-tab-people');
         const linkContent = body.querySelector('.share-tab-link');
@@ -2136,14 +2128,11 @@ class AeorFileBrowserBase extends HTMLElement {
       modal.remove();
     };
 
-    // Build permission string from custom flags or preset
+    // Build permission string from crudlify component or preset
     const getPermissionString = () => {
       if (permSelect.value !== 'custom') return permSelect.value;
-      const flags = ['.','.','.','.','.','.','.','.'];
-      body.querySelectorAll('.share-flag').forEach((cb) => {
-        if (cb.checked) flags[parseInt(cb.dataset.index)] = cb.dataset.flag;
-      });
-      return flags.join('');
+      const crudlify = body.querySelector('.share-crudlify');
+      return crudlify ? crudlify.value : '--------';
     };
 
     // Submit share
@@ -2192,10 +2181,26 @@ class AeorFileBrowserBase extends HTMLElement {
     });
 
     // Create Link button
+    // Link tab: Custom permission toggle
+    const linkPermSelect = body.querySelector('.link-permission-select');
+    const linkCustomFlags = body.querySelector('.link-custom-flags');
+    if (linkPermSelect && linkCustomFlags) {
+      linkPermSelect.addEventListener('change', () => {
+        linkCustomFlags.style.display = linkPermSelect.value === 'custom' ? 'block' : 'none';
+      });
+    }
+
+    const getLinkPermissionString = () => {
+      if (!linkPermSelect || linkPermSelect.value !== 'custom') return linkPermSelect ? linkPermSelect.value : '-r--l---';
+      const crudlify = body.querySelector('.link-crudlify');
+      return crudlify ? crudlify.value : '--------';
+    };
+
+    // Create Link button
     const linkCreateBtn = body.querySelector('.link-create-btn');
     if (linkCreateBtn) {
       linkCreateBtn.addEventListener('click', async () => {
-        const permLevel = body.querySelector('.link-permission-select').value;
+        const permLevel = getLinkPermissionString();
         const expiryDays = body.querySelector('.link-expiry-select').value;
         const expires = expiryDays ? parseInt(expiryDays) : null;
         try {
@@ -2211,13 +2216,28 @@ class AeorFileBrowserBase extends HTMLElement {
       });
     }
 
-    // Copy button
+    // Copy button with flash feedback
     const linkCopyBtn = body.querySelector('.link-copy-btn');
     if (linkCopyBtn) {
-      linkCopyBtn.addEventListener('click', () => {
+      linkCopyBtn.addEventListener('click', async () => {
         const urlInput = body.querySelector('.link-url-input');
-        navigator.clipboard.writeText(urlInput.value);
-        if (window.aeorToast) window.aeorToast('Copied to clipboard', 'success');
+        const original = linkCopyBtn.textContent;
+        const originalBg = linkCopyBtn.style.background;
+        try {
+          await navigator.clipboard.writeText(urlInput.value);
+          linkCopyBtn.textContent = 'Copied';
+          linkCopyBtn.style.background = 'var(--success, #2ea043)';
+          linkCopyBtn.style.color = '#fff';
+        } catch (e) {
+          linkCopyBtn.textContent = 'Error';
+          linkCopyBtn.style.background = 'var(--danger, #da3633)';
+          linkCopyBtn.style.color = '#fff';
+        }
+        setTimeout(() => {
+          linkCopyBtn.textContent = original;
+          linkCopyBtn.style.background = originalBg;
+          linkCopyBtn.style.color = '';
+        }, 1500);
       });
     }
 
