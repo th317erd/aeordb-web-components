@@ -558,12 +558,13 @@ class AeorFileBrowserBase extends HTMLElement {
     const titleInput = panel.querySelector('.preview-title');
     titleInput.value = entry.name;
     titleInput.dataset.original = entry.name;
+    titleInput.readOnly = !this._hasPermission('u', entry);
 
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
       ${extraActions}
-      <button class="danger small" data-action="delete">Delete</button>
+      ${this._hasPermission('d', entry) ? '<button class="danger small" data-action="delete">Delete</button>' : ''}
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
 
@@ -1014,12 +1015,13 @@ class AeorFileBrowserBase extends HTMLElement {
           `<span class="selection-count">${count} selected</span>` +
           `${extraActions}` +
           '<button class="secondary small selection-clear">Clear Selection</button>' +
-          '<button class="danger small selection-delete">Delete Selected</button>';
+          (this._hasPermission('d') ? '<button class="danger small selection-delete">Delete Selected</button>' : '');
 
         leftSlot.querySelector('.selection-clear').addEventListener('click', () => {
           this._clearSelection(tab);
         });
-        leftSlot.querySelector('.selection-delete').addEventListener('click', () => {
+        const delBtn = leftSlot.querySelector('.selection-delete');
+        if (delBtn) delBtn.addEventListener('click', () => {
           this._deleteSelected();
         });
         this._bindSelectionBarExtra(leftSlot, tab);

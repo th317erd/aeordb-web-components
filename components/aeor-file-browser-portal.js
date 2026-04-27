@@ -254,9 +254,8 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
 
   previewActions(entry) {
     return `
-      ${this._hasPermission('y') ? '<button class="secondary small" data-action="share">Share</button>' : ''}
+      ${this._hasPermission('y', entry) ? '<button class="secondary small" data-action="share">Share</button>' : ''}
       <button class="primary small" data-action="download">Download</button>
-      ${this._hasPermission('d') ? '<button class="danger small" data-action="delete">Delete</button>' : ''}
     `;
   }
 
@@ -264,7 +263,6 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     return `
       ${this._hasPermission('y') ? '<button class="secondary small selection-share">Share</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
-      ${this._hasPermission('d') ? '<button class="danger small selection-delete">Delete Selected</button>' : ''}
     `;
   }
 
