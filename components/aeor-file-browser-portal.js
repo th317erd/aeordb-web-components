@@ -253,11 +253,18 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   /**
-   * Fetch the file with auth headers and return a blob URL for the preview
-   * component. Preview components use plain fetch() which has no auth —
-   * blob URLs bypass that since the data is already fetched.
+   * Return a URL for the preview component. For streamable media (video, audio),
+   * returns a ?token= URL so the browser uses range requests — no full download.
+   * For everything else, fetches with auth and returns a blob URL.
    */
   async getPreviewSrc(path, contentType) {
+    // Streamable media: use ?token= URL for browser range requests
+    const ct = (contentType || '').toLowerCase();
+    if (ct.startsWith('video/') || ct.startsWith('audio/')) {
+      const token = (window.AUTH && window.AUTH.token) ? window.AUTH.token : '';
+      return `${this.fileUrl(path)}?token=${encodeURIComponent(token)}`;
+    }
+
     try {
       const response = await window.api(this.fileUrl(path));
       if (!response.ok)
