@@ -123,10 +123,18 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
       });
 
       xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300)
+        if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
-        else
-          reject(new Error(`${xhr.status}`));
+        } else {
+          let msg = `${xhr.status}`;
+          try {
+            const body = JSON.parse(xhr.responseText);
+            if (body.error) msg = body.error;
+          } catch (_) {
+            if (xhr.responseText) msg = xhr.responseText.substring(0, 200);
+          }
+          reject(new Error(msg));
+        }
       });
 
       xhr.addEventListener('error', () => reject(new Error('Network error')));
