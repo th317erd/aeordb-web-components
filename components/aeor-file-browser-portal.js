@@ -157,6 +157,16 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   // ---------------------------------------------------------------------------
+  // Shared-with-me discovery
+  // ---------------------------------------------------------------------------
+
+  async getSharedWithMe() {
+    const response = await window.api('/files/shared-with-me');
+    if (!response.ok) return { paths: [] };
+    return response.json();
+  }
+
+  // ---------------------------------------------------------------------------
   // Share method implementations
   // ---------------------------------------------------------------------------
 

@@ -1114,6 +1114,37 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.loading = false;
     this._updateTabContent(tab.id);
     this._attachScrollListener();
+
+    // If root listing is empty for a non-root user, check for shared paths
+    // and navigate to the first one automatically.
+    if (tab.entries.length === 0 && tab.path === '/' && typeof this.getSharedWithMe === 'function') {
+      try {
+        const shared = await this.getSharedWithMe();
+        const paths = shared.paths || [];
+        if (paths.length === 1) {
+          // Single shared path — navigate directly
+          const p = paths[0].path;
+          tab.path = p.endsWith('/') ? p : p + '/';
+          this._fetchListing();
+        } else if (paths.length > 1) {
+          // Multiple shared paths — show them as virtual listing entries
+          tab.entries = paths.map((s) => ({
+            name: s.path.replace(/\/$/, '').split('/').pop() || s.path,
+            path: s.path,
+            entry_type: 3, // directory
+            size: 0,
+            content_type: null,
+            created_at: null,
+            updated_at: null,
+            _shared_path: true,
+          }));
+          tab.total = tab.entries.length;
+          this._updateTabContent(tab.id);
+        }
+      } catch (e) {
+        // non-critical
+      }
+    }
   }
 
   async _fetchNextPage() {
