@@ -396,6 +396,22 @@ input.preview-title {
   object-fit: contain;
 }
 
+.grid-card-loading {
+  font-size: 24px;
+  color: var(--text-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.grid-card-icon svg {
+  display: block;
+  margin: 0 auto;
+}
+
 .grid-card-name {
   font-size: 12px;
   font-weight: 500;

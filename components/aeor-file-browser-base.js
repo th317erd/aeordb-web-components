@@ -1,11 +1,37 @@
 'use strict';
 
 import {
-  formatSize, formatDate, fileIcon,
-  escapeHtml, escapeAttr, isImageFile,
+  formatSize, formatDate, fileIcon, fileExtension,
+  escapeHtml, escapeAttr, isImageFile, isVideoFile, isAudioFile,
   ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 import './aeor-modal.js';
+
+// File type icon SVGs for grid view thumbnails (non-image files).
+// Each returns an SVG string sized for the grid card icon area.
+const _FILE_ICONS = {
+  folder: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+  video: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M10 8l6 4-6 4z"/></svg>',
+  audio: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+  pdf: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="8" y="17" font-size="6" fill="#ef4444" stroke="none" font-weight="bold">PDF</text></svg>',
+  code: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  text: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
+  archive: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>',
+  file: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+};
+
+function _fileTypeIcon(entry) {
+  if (entry.entry_type === 3) return _FILE_ICONS.folder;
+  if (entry.entry_type === 8) return _FILE_ICONS.file; // symlink
+  const ext = fileExtension(entry.name);
+  if (isVideoFile(entry.name)) return _FILE_ICONS.video;
+  if (isAudioFile(entry.name)) return _FILE_ICONS.audio;
+  if (ext === 'pdf') return _FILE_ICONS.pdf;
+  if (['zip','tar','gz','bz2','7z','rar','xz','zst'].includes(ext)) return _FILE_ICONS.archive;
+  if (['js','ts','py','rs','go','java','c','cpp','h','rb','php','sh','css','html','xml','json','yaml','yml','toml','md','sql'].includes(ext)) return _FILE_ICONS.code;
+  if (['txt','log','csv','tsv','ini','cfg','conf'].includes(ext)) return _FILE_ICONS.text;
+  return _FILE_ICONS.file;
+}
 
 // Content types that should be routed to an existing preview component
 // instead of relying on the dynamic import cascade.
@@ -479,15 +505,17 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderGridViewFor(tab, entries) {
     const cards = entries.map((entry) => {
       const isDir = (entry.entry_type === ENTRY_TYPE_DIR);
-      const icon  = fileIcon(entry.entry_type);
       const size  = (isDir) ? 'Folder' : formatSize(entry.size);
-
-      let thumbnail = `<div class="grid-card-icon">${icon}</div>`;
+      let thumbnail;
 
       if (!isDir && isImageFile(entry.name)) {
-        const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
-        const fileUrl  = this.fileUrl(filePath);
-        thumbnail = `<div class="grid-card-thumbnail"><img src="${escapeAttr(fileUrl)}" alt="${escapeAttr(entry.name)}" loading="lazy"></div>`;
+        // Image: show a loading placeholder, async-load with auth later
+        thumbnail = `<div class="grid-card-thumbnail" data-thumb-path="${escapeAttr(tab.path.replace(/\/$/, '') + '/' + entry.name)}">
+          <div class="grid-card-loading">\u23F3</div>
+        </div>`;
+      } else {
+        // Non-image: show a file type icon
+        thumbnail = `<div class="grid-card-icon">${_fileTypeIcon(entry)}</div>`;
       }
 
       return `
@@ -500,6 +528,21 @@ class AeorFileBrowserBase extends HTMLElement {
     }).join('');
 
     return `<div class="file-grid">${cards}</div>`;
+  }
+
+  /** Load image thumbnails with auth after grid renders. */
+  _loadGridThumbnails(container) {
+    if (!container || typeof this.getPreviewSrc !== 'function') return;
+    const thumbs = container.querySelectorAll('.grid-card-thumbnail[data-thumb-path]');
+    for (const el of thumbs) {
+      const path = el.dataset.thumbPath;
+      if (!path) continue;
+      this.getPreviewSrc(path, 'image/*').then((blobUrl) => {
+        el.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
+      }).catch(() => {
+        el.innerHTML = `<div class="grid-card-icon">\uD83D\uDDBC</div>`; // fallback image icon
+      });
+    }
   }
 
   _renderBreadcrumbs(tab) {
@@ -546,6 +589,11 @@ class AeorFileBrowserBase extends HTMLElement {
 
     if (tabId === this._active_tab_id) {
       this._hydratePreview();
+      // Load image thumbnails with auth for grid view
+      const tab2 = this._tabs.find((t) => t.id === tabId);
+      if (tab2 && tab2.view_mode === 'grid') {
+        this._loadGridThumbnails(container);
+      }
     }
   }
 
