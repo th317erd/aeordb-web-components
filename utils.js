@@ -148,3 +148,30 @@ export function formatDate(timestamp) {
   const seconds = String(date.getSeconds()).padStart(2, '0');
   return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
 }
+
+/**
+ * Flash a button to indicate success or failure.
+ * The button text changes and it turns green (success) or red (error)
+ * for `duration` ms, then reverts to its original state.
+ *
+ * @param {HTMLElement} btn - The button element.
+ * @param {boolean} success - true for green/success, false for red/error.
+ * @param {string} [label] - Temporary label ("Saved!", "Copied!", "Error").
+ * @param {number} [duration=5000] - How long to show the flash in ms.
+ */
+export function flashButton(btn, success, label, duration = 5000) {
+  if (!btn) return;
+  const origText = btn.textContent;
+  const origBg = btn.style.background;
+  const origColor = btn.style.color;
+
+  btn.textContent = label || (success ? 'Saved!' : 'Error');
+  btn.style.background = success ? 'var(--success, #2ea043)' : 'var(--danger, #da3633)';
+  btn.style.color = '#fff';
+
+  setTimeout(() => {
+    btn.textContent = origText;
+    btn.style.background = origBg;
+    btn.style.color = origColor;
+  }, duration);
+}

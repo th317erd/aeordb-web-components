@@ -4,7 +4,7 @@
 /// Not a component itself — just exported helper functions.
 
 // Re-export generic utilities so existing consumers don't break.
-export { escapeHtml, escapeAttr, formatBytes, formatDate } from '../utils.js';
+export { escapeHtml, escapeAttr, formatBytes, formatDate, flashButton } from '../utils.js';
 
 // Import for local use
 import { formatBytes } from '../utils.js';

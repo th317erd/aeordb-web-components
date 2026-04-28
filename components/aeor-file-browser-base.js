@@ -3,7 +3,7 @@
 import {
   formatSize, formatDate, fileIcon, fileExtension,
   escapeHtml, escapeAttr, isImageFile, isVideoFile, isAudioFile,
-  ENTRY_TYPE_DIR,
+  flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 import './aeor-modal.js';
 
@@ -2435,23 +2435,12 @@ class AeorFileBrowserBase extends HTMLElement {
     if (linkCopyBtn) {
       linkCopyBtn.addEventListener('click', async () => {
         const urlInput = body.querySelector('.link-url-input');
-        const original = linkCopyBtn.textContent;
-        const originalBg = linkCopyBtn.style.background;
         try {
           await navigator.clipboard.writeText(urlInput.value);
-          linkCopyBtn.textContent = 'Copied';
-          linkCopyBtn.style.background = 'var(--success, #2ea043)';
-          linkCopyBtn.style.color = '#fff';
+          flashButton(linkCopyBtn, true, 'Copied!');
         } catch (e) {
-          linkCopyBtn.textContent = 'Error';
-          linkCopyBtn.style.background = 'var(--danger, #da3633)';
-          linkCopyBtn.style.color = '#fff';
+          flashButton(linkCopyBtn, false, 'Error');
         }
-        setTimeout(() => {
-          linkCopyBtn.textContent = original;
-          linkCopyBtn.style.background = originalBg;
-          linkCopyBtn.style.color = '';
-        }, 1500);
       });
     }
 
