@@ -383,7 +383,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _getConfigActions(tab) {
     const path = tab.path || '';
-    if (!path.includes('/.config'))
+    if (!path.includes('/.aeordb-config'))
       return '';
 
     return `
