@@ -1111,13 +1111,17 @@ class AeorFileBrowserBase extends HTMLElement {
       tab.entries = [];
     }
 
+    // Apply cached shared-with-me permissions to items that lack them
+    if (tab.entries.length > 0) {
+      this._applySharedPermissions(tab);
+    }
+
     tab.loading = false;
     this._updateTabContent(tab.id);
     this._attachScrollListener();
 
     // If listing is empty, check if the user has shared paths deeper in the
-    // tree and show ancestor entries for navigation. This handles both root
-    // and intermediate directories where the user has no direct permissions.
+    // tree and show ancestor entries for navigation.
     if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
       await this._showSharedAncestors(tab);
     }
@@ -1130,27 +1134,25 @@ class AeorFileBrowserBase extends HTMLElement {
    */
   async _showSharedAncestors(tab) {
     try {
-      // Cache shared-with-me for the session to avoid repeated scans
-      if (!this._sharedPaths) {
+      // Cache shared-with-me for the session to avoid repeated scans.
+      // Store both the path and its permissions for UI toggling.
+      if (!this._sharedPathData) {
         const shared = await this.getSharedWithMe();
-        this._sharedPaths = (shared.paths || []).map((s) => {
-          const p = s.path;
-          return p.endsWith('/') ? p : p + '/';
-        });
+        this._sharedPathData = (shared.paths || []).map((s) => ({
+          path: s.path.endsWith('/') ? s.path : s.path + '/',
+          permissions: s.permissions || '-r--l---',
+        }));
       }
 
-      if (this._sharedPaths.length === 0) return;
+      if (this._sharedPathData.length === 0) return;
 
       const currentPath = tab.path;
 
       // Find child directories at this level that are ancestors of shared paths.
-      // e.g., if shared path is /Pictures/Family/Aeolus/ and we're at /,
-      // show "Pictures". If we're at /Pictures/, show "Family".
       const childDirs = new Set();
-      for (const sharedPath of this._sharedPaths) {
-        if (!sharedPath.startsWith(currentPath)) continue;
-        // Get the next path component after currentPath
-        const remainder = sharedPath.slice(currentPath.length);
+      for (const sp of this._sharedPathData) {
+        if (!sp.path.startsWith(currentPath)) continue;
+        const remainder = sp.path.slice(currentPath.length);
         const nextSegment = remainder.split('/')[0];
         if (nextSegment) childDirs.add(nextSegment);
       }
@@ -1159,17 +1161,48 @@ class AeorFileBrowserBase extends HTMLElement {
         tab.entries = [...childDirs].sort().map((name) => ({
           name,
           path: currentPath + name,
-          entry_type: 3, // directory
+          entry_type: 3,
           size: 0,
           content_type: null,
           created_at: null,
           updated_at: null,
+          // Ancestor directories are read+list only for navigation
+          effective_permissions: '-r--l---',
         }));
         tab.total = tab.entries.length;
         this._updateTabContent(tab.id);
       }
     } catch (e) {
       // non-critical
+    }
+  }
+
+  /**
+   * For items returned by the server that don't have effective_permissions,
+   * look up the cached shared-with-me data to determine permissions.
+   * Called after _fetchListing when items exist but lack permission info.
+   */
+  _applySharedPermissions(tab) {
+    if (!this._sharedPathData || this._sharedPathData.length === 0) return;
+    const currentPath = tab.path;
+
+    for (const entry of tab.entries) {
+      if (entry.effective_permissions) continue; // already set by server
+
+      // Check if this entry's path (or its parent directory) matches a shared path
+      for (const sp of this._sharedPathData) {
+        // Item is inside a shared directory
+        if (currentPath.startsWith(sp.path) || (currentPath + '/').startsWith(sp.path)) {
+          entry.effective_permissions = sp.permissions;
+          break;
+        }
+        // Item IS the shared directory
+        const entryFullPath = entry.path.endsWith('/') ? entry.path : entry.path + '/';
+        if (entryFullPath === sp.path || sp.path.startsWith(entryFullPath)) {
+          entry.effective_permissions = sp.permissions;
+          break;
+        }
+      }
     }
   }
 
