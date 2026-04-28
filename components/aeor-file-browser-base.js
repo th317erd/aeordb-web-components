@@ -1115,35 +1115,68 @@ class AeorFileBrowserBase extends HTMLElement {
     this._updateTabContent(tab.id);
     this._attachScrollListener();
 
-    // If root listing is empty for a non-root user, check for shared paths
-    // and navigate to the first one automatically.
-    if (tab.entries.length === 0 && tab.path === '/' && typeof this.getSharedWithMe === 'function') {
-      try {
+    // If listing is empty, check if the user has shared paths deeper in the
+    // tree and show ancestor entries for navigation. This handles both root
+    // and intermediate directories where the user has no direct permissions.
+    if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
+      await this._showSharedAncestors(tab);
+    }
+  }
+
+  /**
+   * When a directory listing is empty (no permissions at this level), check
+   * the user's shared-with-me paths and show virtual entries for child
+   * directories that lead to shared content.
+   */
+  async _showSharedAncestors(tab) {
+    try {
+      // Cache shared-with-me for the session to avoid repeated scans
+      if (!this._sharedPaths) {
         const shared = await this.getSharedWithMe();
-        const paths = shared.paths || [];
-        if (paths.length === 1) {
-          // Single shared path — navigate directly
-          const p = paths[0].path;
-          tab.path = p.endsWith('/') ? p : p + '/';
-          this._fetchListing();
-        } else if (paths.length > 1) {
-          // Multiple shared paths — show them as virtual listing entries
-          tab.entries = paths.map((s) => ({
-            name: s.path.replace(/\/$/, '').split('/').pop() || s.path,
-            path: s.path,
-            entry_type: 3, // directory
-            size: 0,
-            content_type: null,
-            created_at: null,
-            updated_at: null,
-            _shared_path: true,
-          }));
-          tab.total = tab.entries.length;
-          this._updateTabContent(tab.id);
-        }
-      } catch (e) {
-        // non-critical
+        this._sharedPaths = (shared.paths || []).map((s) => {
+          const p = s.path;
+          return p.endsWith('/') ? p : p + '/';
+        });
       }
+
+      if (this._sharedPaths.length === 0) return;
+
+      const currentPath = tab.path;
+
+      // For root with single shared path — navigate directly
+      if (currentPath === '/' && this._sharedPaths.length === 1) {
+        tab.path = this._sharedPaths[0];
+        this._fetchListing();
+        return;
+      }
+
+      // Find child directories at this level that are ancestors of shared paths.
+      // e.g., if shared path is /Pictures/Family/Aeolus/ and we're at /,
+      // show "Pictures". If we're at /Pictures/, show "Family".
+      const childDirs = new Set();
+      for (const sharedPath of this._sharedPaths) {
+        if (!sharedPath.startsWith(currentPath)) continue;
+        // Get the next path component after currentPath
+        const remainder = sharedPath.slice(currentPath.length);
+        const nextSegment = remainder.split('/')[0];
+        if (nextSegment) childDirs.add(nextSegment);
+      }
+
+      if (childDirs.size > 0) {
+        tab.entries = [...childDirs].sort().map((name) => ({
+          name,
+          path: currentPath + name,
+          entry_type: 3, // directory
+          size: 0,
+          content_type: null,
+          created_at: null,
+          updated_at: null,
+        }));
+        tab.total = tab.entries.length;
+        this._updateTabContent(tab.id);
+      }
+    } catch (e) {
+      // non-critical
     }
   }
 
