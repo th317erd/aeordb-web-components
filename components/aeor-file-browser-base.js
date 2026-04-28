@@ -170,7 +170,13 @@ class AeorFileBrowserBase extends HTMLElement {
     const perms = (entry && entry.effective_permissions)
       ? entry.effective_permissions
       : this._currentDirectoryPermissions();
-    if (!perms) return true; // no restrictions known — allow (server enforces)
+    if (!perms) {
+      // No permissions known yet. Root users get all permissions.
+      // Non-root users default to hidden until listing loads with effective_permissions.
+      const isRoot = typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId
+        && window.AUTH.currentUserId() === '00000000-0000-0000-0000-000000000000';
+      return isRoot;
+    }
     const idx = 'crudlify'.indexOf(flag);
     if (idx < 0 || idx >= perms.length) return false;
     return perms[idx] !== '-';
