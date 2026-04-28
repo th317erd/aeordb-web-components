@@ -261,6 +261,116 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Share method implementations
+  // ---------------------------------------------------------------------------
+
+  async getShares(path) {
+    const tab = this._activeTab();
+    if (!tab) return { shares: [] };
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}?path=${encodeURIComponent(path)}`);
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async share(paths, users, groups, permissions) {
+    const tab = this._activeTab();
+    if (!tab) throw new Error('No active tab');
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, users, groups, permissions }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+  }
+
+  async unshare(path, group, pathPattern) {
+    const tab = this._activeTab();
+    if (!tab) throw new Error('No active tab');
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, group, path_pattern: pathPattern }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+  }
+
+  async getShareableUsers() {
+    const tab = this._activeTab();
+    if (!tab) return [];
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}/users`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.items || [];
+  }
+
+  async getShareableGroups() {
+    const tab = this._activeTab();
+    if (!tab) return [];
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}/groups`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.items || [];
+  }
+
+  async createShareLink(paths, permissions, expiresInDays) {
+    const tab = this._activeTab();
+    if (!tab) throw new Error('No active tab');
+    // Note: base_url is injected server-side by the proxy from connection config
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, permissions, expires_in_days: expiresInDays }),
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async getShareLinks(path) {
+    const tab = this._activeTab();
+    if (!tab) return { links: [] };
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}/links?path=${encodeURIComponent(path)}`);
+    if (!response.ok) return { links: [] };
+    return response.json();
+  }
+
+  async revokeShareLink(keyId) {
+    const tab = this._activeTab();
+    if (!tab) throw new Error('No active tab');
+    const response = await fetch(`/api/v1/shares/${tab.relationship_id}/links/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error(`${response.status}`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hook overrides for share UI
+  // ---------------------------------------------------------------------------
+
+  previewActions(entry) {
+    return `
+      ${this._hasPermission('y', entry) ? '<button class="secondary small" data-action="share">Share</button>' : ''}
+      <button class="secondary small" data-action="open-local">Open Locally</button>
+      <button class="primary small" data-action="download">Download</button>
+    `;
+  }
+
+  selectionActions(tab) {
+    return `
+      ${this._hasPermission('y') ? '<button class="secondary small selection-share">Share</button>' : ''}
+    `;
+  }
+
+  _bindSelectionBarExtra(selectionBar, tab) {
+    const shareBtn = selectionBar.querySelector('.selection-share');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', () => {
+        const paths = [...tab.selectedEntries];
+        if (paths.length > 0) this._showShareModal(paths);
+      });
+    }
+  }
+
   // Client-specific: "Open Locally" in preview actions
   _handlePreviewAction(action) {
     if (action === 'open-local') {
