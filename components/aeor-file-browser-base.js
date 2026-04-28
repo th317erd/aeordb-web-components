@@ -508,9 +508,10 @@ class AeorFileBrowserBase extends HTMLElement {
       const size  = (isDir) ? 'Folder' : formatSize(entry.size);
       let thumbnail;
 
-      if (!isDir && isImageFile(entry.name)) {
-        // Image: show a loading placeholder, async-load with auth later
-        thumbnail = `<div class="grid-card-thumbnail" data-thumb-path="${escapeAttr(tab.path.replace(/\/$/, '') + '/' + entry.name)}">
+      if (!isDir && (isImageFile(entry.name) || isVideoFile(entry.name))) {
+        // Image/video: show a loading placeholder, async-load with auth later
+        const thumbType = isVideoFile(entry.name) ? 'video' : 'image';
+        thumbnail = `<div class="grid-card-thumbnail" data-thumb-path="${escapeAttr(tab.path.replace(/\/$/, '') + '/' + entry.name)}" data-thumb-type="${thumbType}">
           <div class="grid-card-loading">\u23F3</div>
         </div>`;
       } else {
@@ -530,18 +531,66 @@ class AeorFileBrowserBase extends HTMLElement {
     return `<div class="file-grid">${cards}</div>`;
   }
 
-  /** Load image thumbnails with auth after grid renders. */
+  /** Load image/video thumbnails with auth after grid renders. */
   _loadGridThumbnails(container) {
     if (!container || typeof this.getPreviewSrc !== 'function') return;
     const thumbs = container.querySelectorAll('.grid-card-thumbnail[data-thumb-path]');
     for (const el of thumbs) {
       const path = el.dataset.thumbPath;
+      const type = el.dataset.thumbType || 'image';
       if (!path) continue;
-      this.getPreviewSrc(path, 'image/*').then((blobUrl) => {
-        el.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
-      }).catch(() => {
-        el.innerHTML = `<div class="grid-card-icon">\uD83D\uDDBC</div>`; // fallback image icon
+
+      if (type === 'video') {
+        this._loadVideoThumbnail(el, path);
+      } else {
+        this.getPreviewSrc(path, 'image/*').then((blobUrl) => {
+          el.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
+        }).catch(() => {
+          el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.file}</div>`;
+        });
+      }
+    }
+  }
+
+  /** Grab a single frame from a video for use as a thumbnail. */
+  async _loadVideoThumbnail(el, path) {
+    try {
+      const blobUrl = await this.getPreviewSrc(path, 'video/*');
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.preload = 'metadata';
+      video.src = blobUrl;
+
+      await new Promise((resolve, reject) => {
+        video.addEventListener('loadeddata', resolve, { once: true });
+        video.addEventListener('error', reject, { once: true });
+        // Timeout after 10s
+        setTimeout(() => reject(new Error('timeout')), 10000);
       });
+
+      // Seek past black intro frames
+      video.currentTime = Math.min(1, video.duration * 0.1);
+      await new Promise((resolve) => {
+        video.addEventListener('seeked', resolve, { once: true });
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      el.innerHTML = `<img src="${dataUrl}" alt="" loading="lazy">`;
+
+      // Play icon overlay
+      el.insertAdjacentHTML('beforeend',
+        '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;opacity:0.8;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.6);">\u25B6</div>');
+      el.style.position = 'relative';
+
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.video}</div>`;
     }
   }
 
