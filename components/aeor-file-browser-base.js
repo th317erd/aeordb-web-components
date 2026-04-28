@@ -1143,13 +1143,6 @@ class AeorFileBrowserBase extends HTMLElement {
 
       const currentPath = tab.path;
 
-      // For root with single shared path — navigate directly
-      if (currentPath === '/' && this._sharedPaths.length === 1) {
-        tab.path = this._sharedPaths[0];
-        this._fetchListing();
-        return;
-      }
-
       // Find child directories at this level that are ancestors of shared paths.
       // e.g., if shared path is /Pictures/Family/Aeolus/ and we're at /,
       // show "Pictures". If we're at /Pictures/, show "Family".
