@@ -2124,7 +2124,7 @@ class AeorFileBrowserBase extends HTMLElement {
         <div style="margin-bottom:12px;">
           <label style="${labelStyle}">Permission Level</label>
           <select class="share-permission-select" style="${inputStyle}">
-            <option value="cr..l...">View only</option>
+            <option value=".r..l...">View only</option>
             <option value="crudl...">Can edit</option>
             <option value="crudlify">Full access</option>
             <option value="custom">Custom</option>
