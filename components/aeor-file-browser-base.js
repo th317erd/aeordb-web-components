@@ -552,27 +552,37 @@ class AeorFileBrowserBase extends HTMLElement {
     }
   }
 
-  /** Grab a single frame from a video for use as a thumbnail. */
+  /** Grab a single frame from a video for use as a thumbnail.
+   *  Uses ?token= URL so the browser makes range requests — only downloads
+   *  the video index + one keyframe (~100-500KB), not the entire file. */
   async _loadVideoThumbnail(el, path) {
     try {
-      const blobUrl = await this.getPreviewSrc(path, 'video/*');
+      // Build URL with auth token in query param for browser range requests
+      const token = (typeof window !== 'undefined' && window.AUTH) ? window.AUTH.token : null;
+      const url = this.fileUrl(path) + (token ? `?token=${encodeURIComponent(token)}` : '');
+
       const video = document.createElement('video');
       video.crossOrigin = 'anonymous';
       video.muted = true;
       video.preload = 'metadata';
-      video.src = blobUrl;
+      video.src = url;
 
       await new Promise((resolve, reject) => {
-        video.addEventListener('loadeddata', resolve, { once: true });
+        video.addEventListener('loadedmetadata', resolve, { once: true });
         video.addEventListener('error', reject, { once: true });
-        // Timeout after 10s
         setTimeout(() => reject(new Error('timeout')), 10000);
       });
 
-      // Seek past black intro frames
-      video.currentTime = Math.min(1, video.duration * 0.1);
-      await new Promise((resolve) => {
+      // Seek past intros/logos: 15% in or 90s, whichever is less.
+      // For short videos (< 10s), use 1s. For very short (< 2s), use 0.
+      const seekTo = video.duration < 2 ? 0
+        : video.duration < 10 ? 1
+        : Math.min(90, video.duration * 0.15);
+      video.currentTime = seekTo;
+
+      await new Promise((resolve, reject) => {
         video.addEventListener('seeked', resolve, { once: true });
+        setTimeout(() => reject(new Error('seek timeout')), 10000);
       });
 
       const canvas = document.createElement('canvas');
@@ -588,7 +598,9 @@ class AeorFileBrowserBase extends HTMLElement {
         '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;opacity:0.8;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.6);">\u25B6</div>');
       el.style.position = 'relative';
 
-      URL.revokeObjectURL(blobUrl);
+      // Release resources
+      video.src = '';
+      video.load();
     } catch (e) {
       el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.video}</div>`;
     }
