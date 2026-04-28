@@ -283,6 +283,11 @@ class AeorFileBrowserBase extends HTMLElement {
     if (this._active_tab_id && this._activeTab()) {
       this._fetchListing();
     }
+
+    // Clear caches on page unload to prevent stale data across sessions
+    window.addEventListener('beforeunload', () => {
+      this._sharedPathData = null;
+    });
   }
 
   // -------------------------------------------------------------------------
