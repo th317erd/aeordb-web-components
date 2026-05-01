@@ -11,6 +11,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     }
 
     super.connectedCallback();
+    this._connectSSE();
 
     // Auto-open a tab if none were restored from localStorage
     if (!this._active_tab_id) {
@@ -19,9 +20,9 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         const params = new URLSearchParams(window.location.search);
         const sharePath = params.get('path');
         if (sharePath) {
-          initPath = sharePath.endsWith('/')
-            ? sharePath
-            : sharePath.substring(0, sharePath.lastIndexOf('/') + 1) || '/';
+          // Always treat share paths as directories — append / if missing.
+          // The share link URL may omit the trailing slash for directories.
+          initPath = sharePath.endsWith('/') ? sharePath : sharePath + '/';
         }
       }
       this._openTab('portal', 'Database', initPath);
@@ -231,6 +232,58 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     return response.json();
   }
 
+  async _createSnapshot(name) {
+    const response = await window.api('/versions/snapshots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async _restoreFromSnapshot(filePath, snapshotId) {
+    const cleanPath = filePath.replace(/^\//, '');
+    const response = await window.api(`/versions/restore/${cleanPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: snapshotId }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async _restoreFile(filePath) {
+    const response = await window.api('/files/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async _fetchDeleted(dirPath) {
+    const response = await window.api(`/files/deleted?path=${encodeURIComponent(dirPath)}`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.items || [];
+  }
+
+  async _fetchVersionHistory(filePath) {
+    const cleanPath = filePath.replace(/^\//, '');
+    const response = await window.api(`/versions/history/${cleanPath}`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.history || [];
+  }
+
   async getShareLinks(path) {
     const response = await window.api(`/files/share-links?path=${encodeURIComponent(path)}`);
     if (!response.ok) return { links: [] };
@@ -271,7 +324,10 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         return this.fileUrl(path);
 
       const blob = await response.blob();
-      return URL.createObjectURL(blob);
+      if (this._lastPreviewBlobUrl) URL.revokeObjectURL(this._lastPreviewBlobUrl);
+      const url = URL.createObjectURL(blob);
+      this._lastPreviewBlobUrl = url;
+      return url;
     } catch (error) {
       return this.fileUrl(path);
     }
@@ -279,8 +335,8 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
 
   previewActions(entry) {
     return `
-      ${this._hasPermission('y', entry) ? '<button class="secondary small" data-action="share">Share</button>' : ''}
       <button class="primary small" data-action="download">Download</button>
+      ${this._hasPermission('y', entry) ? '<button class="secondary small" data-action="share">Share</button>' : ''}
     `;
   }
 
@@ -392,6 +448,64 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         window.aeorToast('Download failed: ' + error.message, 'error');
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SSE: live-reload listing when entries are created or deleted elsewhere
+  // ---------------------------------------------------------------------------
+
+  _connectSSE() {
+    if (this._eventSource) return;
+    if (!window.AUTH || !window.AUTH.token) return;
+
+    // EventSource doesn't support Authorization headers, so pass token as query param.
+    const url = `/system/events?token=${encodeURIComponent(window.AUTH.token)}`;
+    try {
+      this._eventSource = new EventSource(url);
+      this._eventSource.addEventListener('entries_created', (e) => this._onRemoteChange(e));
+      this._eventSource.addEventListener('entries_deleted', (e) => this._onRemoteChange(e));
+      this._eventSource.onerror = () => {
+        // Silently reconnect — EventSource auto-retries
+      };
+    } catch (_) {
+      // SSE not supported — no live updates
+    }
+  }
+
+  _onRemoteChange(event) {
+    // Only refresh if a file (not directory) changed in the currently viewed directory.
+    // Directory index updates fire on every upload as parents propagate — ignoring
+    // them prevents constant refreshing during bulk uploads.
+    try {
+      const data = JSON.parse(event.data);
+      const entries = (data.payload && data.payload.entries) || data.entries || [];
+      const tab = this._activeTab();
+      if (!tab) return;
+      const currentDir = tab.path || '/';
+
+      const isRelevant = entries.some((entry) => {
+        if (!entry.path) return false;
+        if (entry.entry_type === 'directory') return false;
+        const lastSlash = entry.path.lastIndexOf('/');
+        const parentDir = lastSlash > 0 ? entry.path.substring(0, lastSlash + 1) : '/';
+        return parentDir === currentDir;
+      });
+
+      if (!isRelevant) return;
+    } catch (_) {
+      // Can't parse — refresh to be safe
+    }
+
+    clearTimeout(this._sseDebounce);
+    this._sseDebounce = setTimeout(() => this._fetchListing(), 500);
+  }
+
+  disconnectedCallback() {
+    if (this._eventSource) {
+      this._eventSource.close();
+      this._eventSource = null;
+    }
+    if (super.disconnectedCallback) super.disconnectedCallback();
   }
 }
 

@@ -75,6 +75,7 @@ export class AeorModal extends HTMLElement {
           max-width: 560px;
           width: 100%;
           max-height: 85vh;
+          overflow-x: hidden;
           overflow-y: auto;
           box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
           animation: aeor-modal-scale-in 0.15s ease;
@@ -105,6 +106,8 @@ export class AeorModal extends HTMLElement {
           </div>
           <div class="aeor-modal__body" style="
             padding: 20px;
+            overflow-wrap: break-word;
+            word-break: break-word;
           ">${contentHTML}</div>
         </div>
       </div>
@@ -120,6 +123,17 @@ export class AeorModal extends HTMLElement {
     });
 
     closeButton.addEventListener('click', () => this._dismiss());
+
+    // Auto-focus the first focusable element inside the modal
+    requestAnimationFrame(() => {
+      const dialog = this.querySelector('.aeor-modal__dialog');
+      if (dialog) {
+        const first = dialog.querySelector(
+          'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"]), a[href]'
+        );
+        if (first) first.focus();
+      }
+    });
 
     // Inject keyframe animations if not already present
     if (!document.getElementById('aeor-modal-styles')) {
@@ -144,8 +158,36 @@ export class AeorModal extends HTMLElement {
   }
 
   _onKeyDown(event) {
-    if (event.key === 'Escape')
+    if (event.key === 'Escape') {
       this._dismiss();
+      return;
+    }
+
+    // Focus trap: cycle Tab/Shift+Tab within the modal dialog
+    if (event.key === 'Tab') {
+      const dialog = this.querySelector('.aeor-modal__dialog');
+      if (!dialog) return;
+
+      const focusable = dialog.querySelectorAll(
+        'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"]), a[href]'
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first || !dialog.contains(document.activeElement)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !dialog.contains(document.activeElement)) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
   }
 
   _dismiss() {

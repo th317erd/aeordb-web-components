@@ -6,6 +6,8 @@ import {
   flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 import './aeor-modal.js';
+import './aeor-long-press-button.js';
+import './aeor-info-box.js';
 
 // File type icon SVGs for grid view thumbnails (non-image files).
 // Each returns an SVG string sized for the grid card icon area.
@@ -317,9 +319,20 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     // Clear caches on page unload to prevent stale data across sessions
-    window.addEventListener('beforeunload', () => {
-      this._sharedPathData = null;
-    });
+    this._beforeUnloadHandler = () => { this._sharedPathData = null; };
+    window.addEventListener('beforeunload', this._beforeUnloadHandler);
+  }
+
+  disconnectedCallback() {
+    if (this._keydownHandler) {
+      this.removeEventListener('keydown', this._keydownHandler);
+    }
+    if (this._scroll_listener && this._scroll_listener_target) {
+      this._scroll_listener_target.removeEventListener('scroll', this._scroll_listener);
+    }
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -377,8 +390,12 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _getVisibleEntries(tab) {
-    if (this._showHidden) return tab.entries;
-    return tab.entries.filter((e) => !e.name.startsWith('.'));
+    // Always include deleted entries (they're only present when eye toggle is on)
+    const live = this._showHidden
+      ? tab.entries
+      : tab.entries.filter((e) => !e.name.startsWith('.'));
+    const deleted = tab._deletedEntries || [];
+    return [...live, ...deleted];
   }
 
   _getConfigActions(tab) {
@@ -403,6 +420,7 @@ class AeorFileBrowserBase extends HTMLElement {
         ${breadcrumbs}
         <div style="display: flex; gap: 8px; align-items: center;">
           ${configBar}
+          <button class="primary small snapshot-button" style="background:var(--success,#3fb950);border-color:var(--success,#3fb950);">Snapshot</button>
           ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
@@ -416,7 +434,7 @@ class AeorFileBrowserBase extends HTMLElement {
       <div class="selection-bar">
         <div class="selection-actions-left"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
-          <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden files' : 'Show hidden files'}">&#128065;</button>
+          <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
           <div class="view-toggle">
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
             <button class="small ${(viewMode === 'grid') ? 'primary' : 'secondary'}" data-view="grid" title="Grid view">&#9638;</button>
@@ -456,28 +474,45 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _renderPreviewPanel(tab) {
     return `
-      <div class="preview-panel" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
+      <div class="preview-panel" translate="no" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
         <div class="preview-resize-handle"></div>
         <div class="preview-header">
           <input type="text" class="preview-title" spellcheck="false">
           <div class="preview-actions"></div>
         </div>
-        <div class="preview-content"></div>
-        <div class="preview-meta"></div>
-        <div class="preview-warning" style="display:none;"></div>
+        <div style="display:flex;gap:0;flex:1;overflow:hidden;">
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+            <div class="preview-content"></div>
+            <div class="preview-meta"></div>
+            <div class="preview-warning" style="display:none;"></div>
+          </div>
+          <div class="preview-versions" translate="no" style="width:220px;border-left:1px solid var(--border,#30363d);overflow-y:auto;padding:10px;flex-shrink:0;display:none;">
+            <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted,#8b949e);margin-bottom:8px;">Version History</div>
+            <div class="preview-versions-list" style="font-size:0.82rem;"></div>
+          </div>
+        </div>
       </div>`;
   }
 
   _renderListRow(entry) {
     const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
+    const isDeleted = !!entry._deleted;
     const icon     = fileIcon(entry.entry_type);
     const size     = (isDir) ? '\u2014' : formatSize(entry.size);
     const created  = formatDate(entry.created_at);
-    const modified = formatDate(entry.updated_at);
+    const modified = isDeleted
+      ? `<span style="color:var(--danger,#f85149);">Deleted ${formatDate(entry._deleted_at)}</span>`
+      : formatDate(entry.updated_at);
+    const rowStyle = isDeleted
+      ? 'style="opacity:0.6;background:rgba(248,81,73,0.06);"'
+      : '';
+    const nameStyle = isDeleted
+      ? 'style="text-decoration:line-through;color:var(--danger,#f85149);"'
+      : '';
 
     return `
-      <tr class="file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}">
-        <td><span class="file-icon">${icon}</span>${escapeHtml(entry.name)}</td>
+      <tr class="file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''} ${rowStyle}>
+        <td><span class="file-icon">${icon}</span><span ${nameStyle}>${escapeHtml(entry.name)}</span></td>
         <td>${size}</td>
         <td>${created}</td>
         <td>${modified}</td>
@@ -520,11 +555,15 @@ class AeorFileBrowserBase extends HTMLElement {
         thumbnail = `<div class="grid-card-icon">${_fileTypeIcon(entry)}</div>`;
       }
 
+      const isDeleted = !!entry._deleted;
+      const deletedStyle = isDeleted ? 'opacity:0.5;border-color:var(--danger,#f85149);' : '';
+      const nameStyle = isDeleted ? 'text-decoration:line-through;color:var(--danger,#f85149);' : '';
+
       return `
-        <div class="grid-card file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}">
+        <div class="grid-card file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''} style="${deletedStyle}">
           ${thumbnail}
-          <div class="grid-card-name" title="${escapeAttr(entry.name)}">${escapeHtml(this._truncate(entry.name, 20))}</div>
-          <div class="grid-card-meta">${size}</div>
+          <div class="grid-card-name" title="${escapeAttr(entry.name)}" style="${nameStyle}">${escapeHtml(this._truncate(entry.name, 20))}</div>
+          <div class="grid-card-meta">${isDeleted ? '<span style="color:var(--danger,#f85149);">Deleted</span>' : size}</div>
         </div>
       `;
     }).join('');
@@ -535,6 +574,8 @@ class AeorFileBrowserBase extends HTMLElement {
   /** Load image/video thumbnails with auth after grid renders. */
   _loadGridThumbnails(container) {
     if (!container || typeof this.getPreviewSrc !== 'function') return;
+    const tab = this._activeTab();
+    if (tab) tab._gridBlobUrls = tab._gridBlobUrls || [];
     const thumbs = container.querySelectorAll('.grid-card-thumbnail[data-thumb-path]');
     for (const el of thumbs) {
       const path = el.dataset.thumbPath;
@@ -545,6 +586,7 @@ class AeorFileBrowserBase extends HTMLElement {
         this._loadVideoThumbnail(el, path);
       } else {
         this.getPreviewSrc(path, 'image/*').then((blobUrl) => {
+          if (tab) tab._gridBlobUrls.push(blobUrl);
           el.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
         }).catch(() => {
           el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.file}</div>`;
@@ -670,7 +712,123 @@ class AeorFileBrowserBase extends HTMLElement {
     const entry = tab.preview_entry;
     const componentName = tab.preview_component;
 
-    if (!entry || !componentName) {
+    if (!entry) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    // Deleted file: check for snapshots first
+    if (entry._deleted) {
+      panel.style.display = '';
+      const titleInput = panel.querySelector('.preview-title');
+      titleInput.value = entry.name;
+      titleInput.readOnly = true;
+      titleInput.style.pointerEvents = 'none';
+
+      // Fetch version history to determine if we have snapshots
+      const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+      let versions = [];
+      try {
+        versions = await this._fetchVersionHistory(filePath) || [];
+      } catch (_) {}
+
+      // Find the most recent snapshot where the file existed (not deleted)
+      const latestVersion = versions.find((v) => v.change_type !== 'deleted');
+
+      if (latestVersion) {
+        // Has snapshots — show preview of the latest version
+        panel.querySelector('.preview-actions').innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <aeor-info-box compact>Any version can be safely restored.</aeor-info-box>
+            <aeor-long-press-button class="restore-snapshot-btn" label="Restore Selected Snapshot" confirmed-text="File Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);"></aeor-long-press-button>
+            <button class="secondary small" data-action="close-preview">\u2715</button>
+          </div>
+        `;
+
+        // Load the preview from the snapshot
+        const contentType = latestVersion.content_type || 'application/octet-stream';
+        const componentName = await loadPreviewComponent(contentType);
+        const contentEl = panel.querySelector('.preview-content');
+        if (componentName) {
+          contentEl.innerHTML = `<${componentName}></${componentName}>`;
+          const previewEl = contentEl.querySelector(componentName);
+          if (previewEl) {
+            const snapshotId = latestVersion.id || latestVersion.snapshot;
+            const src = await this.getPreviewSrc(filePath + '?version=' + encodeURIComponent(snapshotId), contentType);
+            previewEl.setAttribute('src', src);
+            previewEl.setAttribute('filename', entry.name);
+            previewEl.setAttribute('size', latestVersion.size || 0);
+            previewEl.setAttribute('content-type', contentType);
+            if (previewEl.load) previewEl.load();
+          }
+        }
+
+        panel.querySelector('.preview-meta').textContent =
+          `Deleted \u00B7 ${formatDate(entry._deleted_at)} \u00B7 Showing snapshot: ${latestVersion.snapshot}`;
+
+        // Store the current snapshot id for the restore button
+        panel._currentSnapshotId = latestVersion.id || latestVersion.snapshot;
+
+        // Load version history sidebar
+        this._loadVersionHistory(panel, tab, entry);
+
+        // Bind restore long-press button
+        const headerRestoreBtn = panel.querySelector('.restore-snapshot-btn');
+        if (headerRestoreBtn) {
+          headerRestoreBtn.addEventListener('confirm', () => {
+            const snapId = panel._currentSnapshotId;
+            this._confirmRestoreVersion(tab, entry, snapId);
+          });
+        }
+        // Bind other action buttons (close)
+        panel.querySelectorAll('[data-action]').forEach((button) => {
+          button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this._handlePreviewAction(button.dataset.action);
+          });
+        });
+      } else {
+        // No snapshots — show trash can with "Restore Deleted File" button
+        panel.querySelector('.preview-actions').innerHTML = `
+          <button class="primary small" data-action="restore-deleted">Restore Deleted File</button>
+          <button class="secondary small" data-action="close-preview">\u2715</button>
+        `;
+
+        const contentEl = panel.querySelector('.preview-content');
+        contentEl.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:40px;text-align:center;">
+            <div style="font-size:3rem;margin-bottom:16px;opacity:0.4;">&#128465;</div>
+            <div style="color:var(--danger,#f85149);font-size:1rem;font-weight:600;margin-bottom:8px;">File Deleted</div>
+            <div style="color:var(--text-muted,#8b949e);font-size:0.85rem;">
+              Deleted on ${formatDate(entry._deleted_at)}
+            </div>
+            <div style="color:var(--text-muted,#8b949e);font-size:0.82rem;margin-top:16px;">
+              No snapshots available. Click <strong>Restore Deleted File</strong> to recover from the database history.
+            </div>
+          </div>
+        `;
+
+        panel.querySelector('.preview-meta').textContent = `Deleted \u00B7 ${formatDate(entry._deleted_at)}`;
+
+        const versionsPanel = panel.querySelector('.preview-versions');
+        if (versionsPanel) versionsPanel.style.display = 'none';
+
+        // Bind action buttons
+        panel.querySelectorAll('[data-action]').forEach((button) => {
+          button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (button.dataset.action === 'restore-deleted') {
+              this._restoreDeletedFile(tab, entry);
+            } else {
+              this._handlePreviewAction(button.dataset.action);
+            }
+          });
+        });
+      }
+      return;
+    }
+
+    if (!componentName) {
       panel.style.display = 'none';
       return;
     }
@@ -687,8 +845,8 @@ class AeorFileBrowserBase extends HTMLElement {
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
+      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-border:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
       ${extraActions}
-      ${this._hasPermission('d', entry) ? '<button class="danger small" data-action="delete">Delete</button>' : ''}
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
 
@@ -734,7 +892,18 @@ class AeorFileBrowserBase extends HTMLElement {
       }
     }
 
-    // Bind action buttons
+    // Load version history
+    this._loadVersionHistory(panel, tab, entry);
+
+    // Bind delete long-press button
+    const previewDelBtn = panel.querySelector('.preview-delete-btn');
+    if (previewDelBtn) {
+      previewDelBtn.addEventListener('confirm', () => {
+        this._handlePreviewAction('delete');
+      });
+    }
+
+    // Bind other action buttons
     panel.querySelectorAll('[data-action]').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -805,8 +974,14 @@ class AeorFileBrowserBase extends HTMLElement {
     // Toggle hidden files
     const toggleHiddenBtn = container.querySelector('.toggle-hidden-btn');
     if (toggleHiddenBtn) {
-      toggleHiddenBtn.addEventListener('click', () => {
+      toggleHiddenBtn.addEventListener('click', async () => {
         this._showHidden = !this._showHidden;
+        const tab = this._tabs.find((t) => t.id === tabId);
+        if (this._showHidden && tab) {
+          await this._fetchDeletedEntries(tab);
+        } else if (tab) {
+          tab._deletedEntries = [];
+        }
         this._updateTabContent(tabId);
       });
     }
@@ -859,7 +1034,8 @@ class AeorFileBrowserBase extends HTMLElement {
         const entryName = el.dataset.name;
         const entryType = parseInt(el.dataset.type, 10);
         const entryPath = tab.path.replace(/\/$/, '') + '/' + entryName;
-        const entryIndex = tab.entries.findIndex((e) => e.name === entryName);
+        const visibleEntries = this._getVisibleEntries(tab);
+        const entryIndex = visibleEntries.findIndex((e) => e.name === entryName);
         const isCtrl = event.ctrlKey || event.metaKey;
         const isShift = event.shiftKey;
 
@@ -872,7 +1048,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
           // Preview for files only (directories don't have previews)
           if (entryType !== ENTRY_TYPE_DIR) {
-            tab.preview_entry = tab.entries.find((e) => e.name === entryName) || null;
+            tab.preview_entry = visibleEntries.find((e) => e.name === entryName) || null;
             tab.preview_component = null;
             this._loadPreview();
           }
@@ -888,15 +1064,15 @@ class AeorFileBrowserBase extends HTMLElement {
         } else if (isShift) {
           // Shift+Click — range select using current visible entries
           const anchorIndex = (tab.lastSelectedAnchor)
-            ? tab.entries.findIndex((e) => tab.path.replace(/\/$/, '') + '/' + e.name === tab.lastSelectedAnchor)
+            ? visibleEntries.findIndex((e) => tab.path.replace(/\/$/, '') + '/' + e.name === tab.lastSelectedAnchor)
             : 0;
           const anchor = (anchorIndex >= 0) ? anchorIndex : 0;
           const start = Math.min(anchor, entryIndex);
           const end = Math.max(anchor, entryIndex);
 
           for (let i = start; i <= end; i++) {
-            if (tab.entries[i])
-              tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + tab.entries[i].name);
+            if (visibleEntries[i])
+              tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + visibleEntries[i].name);
           }
           this._updateSelectionVisual(tab);
         }
@@ -950,6 +1126,11 @@ class AeorFileBrowserBase extends HTMLElement {
     this.addEventListener('keydown', keydownHandler);
 
     // New Folder button
+    const snapshotButton = container.querySelector('.snapshot-button');
+    if (snapshotButton) {
+      snapshotButton.addEventListener('click', () => this._takeSnapshot(snapshotButton));
+    }
+
     const newFolderButton = container.querySelector('.new-folder-button');
     if (newFolderButton) {
       newFolderButton.addEventListener('click', () => this._promptNewFolder());
@@ -1117,6 +1298,8 @@ class AeorFileBrowserBase extends HTMLElement {
   _navigateTo(path) {
     const tab = this._activeTab();
     if (!tab) return;
+    (tab._gridBlobUrls || []).forEach(u => URL.revokeObjectURL(u));
+    tab._gridBlobUrls = [];
     tab.path = path;
     tab.preview_entry = null;
     tab.selectedEntries.clear();
@@ -1157,17 +1340,30 @@ class AeorFileBrowserBase extends HTMLElement {
       if (tab.selectedEntries.size > 0) {
         const count = tab.selectedEntries.size;
         const extraActions = this.selectionActions(tab) || '';
+
+        // Check if any selected entries are deleted files
+        const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
+        const hasDeletedSelected = [...tab.selectedEntries].some((path) => {
+          const name = path.split('/').pop();
+          return allEntries.some((e) => e.name === name && e._deleted);
+        });
+
         leftSlot.innerHTML =
           `<span class="selection-count">${count} selected</span>` +
           `${extraActions}` +
           '<button class="secondary small selection-clear">Clear Selection</button>' +
-          (this._hasPermission('d') ? '<button class="danger small selection-delete">Delete Selected</button>' : '');
+          (hasDeletedSelected ? '<button class="primary small selection-restore">Restore Selected</button>' : '') +
+          (this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-border:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : '');
 
         leftSlot.querySelector('.selection-clear').addEventListener('click', () => {
           this._clearSelection(tab);
         });
+        const restoreBtn = leftSlot.querySelector('.selection-restore');
+        if (restoreBtn) restoreBtn.addEventListener('click', () => {
+          this._restoreSelected();
+        });
         const delBtn = leftSlot.querySelector('.selection-delete');
-        if (delBtn) delBtn.addEventListener('click', () => {
+        if (delBtn) delBtn.addEventListener('confirm', () => {
           this._deleteSelected();
         });
         this._bindSelectionBarExtra(leftSlot, tab);
@@ -1187,13 +1383,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._activeTab();
     if (!tab || tab.selectedEntries.size === 0) return;
 
-    const count = tab.selectedEntries.size;
-    const confirmed = await this._confirm(
-      'Delete Files',
-      `Delete ${count} item${(count > 1) ? 's' : ''}? Files can be recovered from a snapshot if needed.`,
-    );
-    if (!confirmed) return;
-
+    // Long-press button already confirmed — just delete
     // selectedEntries contains full paths
     const paths = [...tab.selectedEntries];
     for (const filePath of paths) {
@@ -1232,6 +1422,7 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   async _fetchListing() {
+    if (this._refreshSuppressed) return;
     const tab = this._activeTab();
     if (!tab) return;
 
@@ -1253,6 +1444,13 @@ class AeorFileBrowserBase extends HTMLElement {
     // Apply cached shared-with-me permissions to items that lack them
     if (tab.entries.length > 0) {
       this._applySharedPermissions(tab);
+    }
+
+    // Refresh deleted entries if eye toggle is on
+    if (this._showHidden) {
+      await this._fetchDeletedEntries(tab);
+    } else {
+      tab._deletedEntries = [];
     }
 
     tab.loading = false;
@@ -1453,11 +1651,16 @@ class AeorFileBrowserBase extends HTMLElement {
 
     switch (action) {
       case 'delete': {
-        const confirmed = await this._confirm(
-          'Delete File',
-          `Delete "${entry.name}"? Files can be recovered from a snapshot if needed.`,
-        );
-        if (!confirmed) break;
+        // If multiple files are selected, delete all of them
+        if (tab.selectedEntries.size > 1) {
+          // Context menu multi-delete needs confirmation
+          const multiConfirmed = await this._confirm(
+            'Delete Files',
+            `Delete ${tab.selectedEntries.size} items? Files can be recovered from a snapshot if needed.`,
+          );
+          if (multiConfirmed) this._deleteSelected();
+          break;
+        }
         try {
           await this.deletePath(filePath);
           tab.preview_entry = null;
@@ -1924,6 +2127,7 @@ class AeorFileBrowserBase extends HTMLElement {
     let totalBytes = 0;
     let uploadedBytes = 0;
     let failedCount = 0;
+    let cancelled = false;
     const startTime = Date.now();
 
     for (const file of files) totalBytes += file.size;
@@ -1937,6 +2141,9 @@ class AeorFileBrowserBase extends HTMLElement {
       container.appendChild(progressPanel);
     }
 
+    // Build the progress panel DOM once, then update in place.
+    // This prevents the cancel button from being destroyed mid-press.
+    let progressInitialized = false;
     const updateProgress = (currentFile, fileLoaded, fileTotal) => {
       if (!progressPanel) return;
       const currentUploadedBytes = uploadedBytes + fileLoaded;
@@ -1947,22 +2154,41 @@ class AeorFileBrowserBase extends HTMLElement {
       const remaining = (speed > 0) ? (totalBytes - currentUploadedBytes) / speed : 0;
       const remainingText = (remaining > 0) ? this._formatDuration(remaining) : '';
 
-      progressPanel.innerHTML = `
-        <div class="upload-progress-header">
-          <span class="upload-progress-title">Uploading ${completedFiles + 1} of ${totalFiles}</span>
-          <span class="upload-progress-speed">${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}</span>
-        </div>
-        <div class="upload-progress-filename">${escapeHtml(currentFile)}</div>
-        <div class="upload-progress-bar-track">
-          <div class="upload-progress-bar-fill" style="width: ${overallPercent}%"></div>
-        </div>
-        <div class="upload-progress-meta">
-          ${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
-        </div>
-      `;
+      if (!progressInitialized) {
+        progressInitialized = true;
+        progressPanel.innerHTML = `
+          <div class="upload-progress-header">
+            <span class="upload-progress-title"></span>
+            <span class="upload-progress-speed"></span>
+          </div>
+          <div class="upload-progress-filename"></div>
+          <div class="upload-progress-bar-track">
+            <div class="upload-progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <div class="upload-progress-meta" style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="upload-progress-count"></span>
+            <aeor-long-press-button label="Cancel" duration="1000"></aeor-long-press-button>
+          </div>
+        `;
+        const cancelBtn = progressPanel.querySelector('aeor-long-press-button');
+        if (cancelBtn) cancelBtn.addEventListener('confirm', () => { cancelled = true; });
+      }
+
+      // Update text nodes in place — no DOM destruction
+      const title = progressPanel.querySelector('.upload-progress-title');
+      const speedEl = progressPanel.querySelector('.upload-progress-speed');
+      const filenameEl = progressPanel.querySelector('.upload-progress-filename');
+      const fillEl = progressPanel.querySelector('.upload-progress-bar-fill');
+      const countEl = progressPanel.querySelector('.upload-progress-count');
+      if (title) title.textContent = `Uploading ${completedFiles + 1} of ${totalFiles}`;
+      if (speedEl) speedEl.textContent = `${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}`;
+      if (filenameEl) filenameEl.textContent = currentFile;
+      if (fillEl) fillEl.style.width = `${overallPercent}%`;
+      if (countEl) countEl.textContent = `${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}`;
     };
 
     for (const file of files) {
+      if (cancelled) break;
       const relativePath = file._relativePath || file.name;
       const filePath = tab.path.replace(/\/$/, '') + '/' + relativePath;
 
@@ -1984,15 +2210,17 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     if (progressPanel) {
+      const statusTitle = cancelled ? 'Upload cancelled' : 'Upload complete';
+      const skippedText = cancelled ? ` \u00B7 ${totalFiles - completedFiles} skipped` : '';
       progressPanel.innerHTML = `
         <div class="upload-progress-header">
-          <span class="upload-progress-title">Upload complete</span>
+          <span class="upload-progress-title">${statusTitle}</span>
         </div>
         <div class="upload-progress-bar-track">
-          <div class="upload-progress-bar-fill" style="width: 100%"></div>
+          <div class="upload-progress-bar-fill" style="width: ${cancelled ? Math.round((completedFiles / totalFiles) * 100) : 100}%"></div>
         </div>
         <div class="upload-progress-meta">
-          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
+          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}${skippedText}
         </div>
       `;
       setTimeout(() => { if (progressPanel.parentNode) progressPanel.remove(); }, 2000);
@@ -2028,6 +2256,7 @@ class AeorFileBrowserBase extends HTMLElement {
       container.appendChild(progressPanel);
     }
 
+    let progressInitialized = false;
     const updateProgress = (currentFile, fileLoaded, fileTotal) => {
       if (!progressPanel) return;
 
@@ -2039,19 +2268,32 @@ class AeorFileBrowserBase extends HTMLElement {
       const remaining = (speed > 0) ? (totalBytes - currentUploadedBytes) / speed : 0;
       const remainingText = (remaining > 0) ? this._formatDuration(remaining) : '';
 
-      progressPanel.innerHTML = `
-        <div class="upload-progress-header">
-          <span class="upload-progress-title">Uploading ${completedFiles + 1} of ${totalFiles}</span>
-          <span class="upload-progress-speed">${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}</span>
-        </div>
-        <div class="upload-progress-filename">${escapeHtml(currentFile)}</div>
-        <div class="upload-progress-bar-track">
-          <div class="upload-progress-bar-fill" style="width: ${overallPercent}%"></div>
-        </div>
-        <div class="upload-progress-meta">
-          ${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
-        </div>
-      `;
+      if (!progressInitialized) {
+        progressInitialized = true;
+        progressPanel.innerHTML = `
+          <div class="upload-progress-header">
+            <span class="upload-progress-title"></span>
+            <span class="upload-progress-speed"></span>
+          </div>
+          <div class="upload-progress-filename"></div>
+          <div class="upload-progress-bar-track">
+            <div class="upload-progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <div class="upload-progress-meta"></div>
+        `;
+      }
+
+      // Update text nodes in place — no DOM destruction
+      const title = progressPanel.querySelector('.upload-progress-title');
+      const speedEl = progressPanel.querySelector('.upload-progress-speed');
+      const filenameEl = progressPanel.querySelector('.upload-progress-filename');
+      const fillEl = progressPanel.querySelector('.upload-progress-bar-fill');
+      const countEl = progressPanel.querySelector('.upload-progress-meta');
+      if (title) title.textContent = `Uploading ${completedFiles + 1} of ${totalFiles}`;
+      if (speedEl) speedEl.textContent = `${speedText}${(remainingText) ? ' \u00B7 ' + remainingText + ' remaining' : ''}`;
+      if (filenameEl) filenameEl.textContent = currentFile;
+      if (fillEl) fillEl.style.width = `${overallPercent}%`;
+      if (countEl) countEl.textContent = `${completedFiles} of ${totalFiles} files complete${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}`;
     };
 
     for (const file of files) {
@@ -2506,7 +2748,9 @@ class AeorFileBrowserBase extends HTMLElement {
           this._loadPreview();
         } else if (item.dataset.context === 'share') {
           if (activeTab) {
-            const filePath = activeTab.path.replace(/\/$/, '') + '/' + entry.name;
+            let filePath = activeTab.path.replace(/\/$/, '') + '/' + entry.name;
+            // Directories need trailing slash so the server creates a wildcard glob
+            if (entry.entry_type === ENTRY_TYPE_DIR) filePath += '/';
             this._showShareModal([filePath]);
           }
         } else {
@@ -2584,19 +2828,356 @@ class AeorFileBrowserBase extends HTMLElement {
     this._sorting = false;
   }
 
+  // ---------------------------------------------------------------------------
+  // Deleted files
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch deleted files for the current directory and store them on the tab.
+   * Override _fetchDeleted() in subclasses to provide the API call.
+   */
+  async _fetchDeletedEntries(tab) {
+    try {
+      const items = await this._fetchDeleted(tab.path);
+      // Filter out entries that still exist in the live listing (re-created after delete)
+      const liveNames = new Set(tab.entries.map((e) => e.name));
+      tab._deletedEntries = items
+        .filter((d) => !liveNames.has(d.name))
+        .map((d) => ({
+          name: d.name,
+          path: d.path,
+          entry_type: 2, // file
+          size: 0,
+          content_type: null,
+          created_at: null,
+          updated_at: d.deleted_at,
+          _deleted: true,
+          _deleted_at: d.deleted_at,
+        }));
+    } catch (_) {
+      tab._deletedEntries = [];
+    }
+  }
+
+  async _restoreSelected() {
+    const tab = this._activeTab();
+    if (!tab) return;
+
+    const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
+    const toRestore = [...tab.selectedEntries]
+      .map((path) => {
+        const name = path.split('/').pop();
+        return allEntries.find((e) => e.name === name && e._deleted);
+      })
+      .filter(Boolean);
+
+    if (toRestore.length === 0) return;
+
+    let restored = 0;
+    let failed = 0;
+    for (const entry of toRestore) {
+      try {
+        await this._restoreFile(entry.path);
+        restored++;
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    if (window.aeorToast) {
+      const msg = failed > 0
+        ? `Restored ${restored} files, ${failed} failed`
+        : `Restored ${restored} file${restored > 1 ? 's' : ''}`;
+      window.aeorToast(msg, failed > 0 ? 'warning' : 'success');
+    }
+
+    tab.selectedEntries.clear();
+    tab.preview_entry = null;
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    if (container) {
+      const panel = container.querySelector('.preview-panel');
+      if (panel) panel.style.display = 'none';
+    }
+    this._fetchListing();
+  }
+
+  /**
+   * Fetch deleted file records for a directory. Override in subclasses.
+   * Should return an array of { name, path, deleted_at }.
+   */
+  async _fetchDeleted(dirPath) {
+    return [];
+  }
+
+  /**
+   * Restore a deleted file. Override _restoreFile() in subclasses.
+   */
+  async _restoreDeletedFile(tab, entry) {
+    try {
+      await this._restoreFile(entry.path);
+      if (window.aeorToast) window.aeorToast(`Restored: ${entry.name}`, 'success');
+      // Refresh listing, then select the restored file for preview
+      const restoredName = entry.name;
+      await this._fetchListing();
+      const restored = tab.entries.find((e) => e.name === restoredName);
+      if (restored) {
+        const restoredPath = tab.path.replace(/\/$/, '') + '/' + restoredName;
+        tab.selectedEntries.clear();
+        tab.selectedEntries.add(restoredPath);
+        tab.preview_entry = restored;
+        tab.preview_component = null;
+        this._updateTabContent(tab.id);
+        this._loadPreview();
+      }
+    } catch (error) {
+      if (window.aeorToast) window.aeorToast(`Restore failed: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Restore a deleted file by path. Override in subclasses.
+   */
+  async _restoreFile(filePath) {
+    throw new Error('Restore not implemented');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Version history panel
+  // ---------------------------------------------------------------------------
+
+  async _loadVersionHistory(panel, tab, entry) {
+    const versionsPanel = panel.querySelector('.preview-versions');
+    const versionsList = panel.querySelector('.preview-versions-list');
+    if (!versionsPanel || !versionsList) return;
+
+    const isDir = entry.entry_type === ENTRY_TYPE_DIR;
+    if (isDir) {
+      versionsPanel.style.display = 'none';
+      return;
+    }
+
+    versionsPanel.style.display = '';
+    versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">Loading...</div>';
+
+    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    try {
+      const versions = await this._fetchVersionHistory(filePath);
+      if (!versions || versions.length === 0) {
+        versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">No snapshots</div>';
+        return;
+      }
+
+      // Current version is the first entry (newest-first from API)
+      const currentHash = entry.hash || '';
+
+      versionsList.innerHTML = versions.map((v, idx) => {
+        const date = formatDate(v.timestamp);
+        const icon = v.change_type === 'added' ? '+'
+          : v.change_type === 'deleted' ? '\u2212'
+          : v.change_type === 'modified' ? '\u2022'
+          : '\u2013';
+        const color = v.change_type === 'added' ? 'var(--success,#3fb950)'
+          : v.change_type === 'deleted' ? 'var(--danger,#f85149)'
+          : v.change_type === 'modified' ? 'var(--accent,#f97316)'
+          : 'var(--text-muted,#8b949e)';
+        const size = v.size ? formatSize(v.size) : '';
+        const isCurrent = idx === 0; // newest version = current
+        const selectedStyle = isCurrent
+          ? 'border-color:var(--accent,#f97316);background:rgba(249,115,22,0.08);'
+          : '';
+
+        return `
+          <div class="version-entry" data-snapshot-id="${escapeAttr(v.id || v.snapshot)}" data-snapshot-name="${escapeAttr(v.snapshot)}" data-content-hash="${escapeAttr(v.content_hash || '')}" style="
+            padding:6px 8px;margin-bottom:4px;border-radius:4px;cursor:pointer;
+            border:1px solid var(--border,#30363d);transition:border-color 0.15s,background 0.15s;
+            ${selectedStyle}
+          ">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:${color};font-weight:700;font-size:1rem;line-height:1;">${icon}</span>
+                <span style="font-size:0.78rem;color:var(--text,#e6edf3);">${escapeHtml(v.snapshot)}</span>
+              </div>
+              ${!isCurrent && v.change_type !== 'deleted' ? '<aeor-long-press-button class="version-restore-btn" label="Restore" confirmed-text="Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);font-size:0.7rem;"></aeor-long-press-button>' : ''}
+              ${isCurrent ? '<span style="font-size:0.68rem;color:var(--accent,#f97316);">current</span>' : ''}
+            </div>
+            <div style="font-size:0.65rem;color:var(--text-muted,#8b949e);margin-top:3px;font-family:var(--font-mono,monospace);user-select:text;word-break:break-all;opacity:0.7;display:flex;align-items:flex-start;gap:4px;">
+              <span>${escapeHtml(v.id || '')}</span>
+              <span class="copy-id-btn" data-copy-id="${escapeAttr(v.id || '')}" style="cursor:pointer;opacity:0.5;flex-shrink:0;" title="Copy ID">&#128203;</span>
+            </div>
+            <div style="font-size:0.72rem;color:var(--text-muted,#8b949e);margin-top:2px;">
+              ${date}${size ? ' \u00B7 ' + size : ''}
+            </div>
+          </div>`;
+      }).join('');
+
+      // Bind click (preview version) and double-click (restore)
+      versionsList.querySelectorAll('.version-entry').forEach((el, idx) => {
+        const snapshot = el.dataset.snapshotId;
+        const isCurrent = idx === 0;
+
+        el.addEventListener('click', (e) => {
+          if (e.target.classList.contains('version-restore-btn')) return;
+          // Highlight selected version
+          versionsList.querySelectorAll('.version-entry').forEach((v) => {
+            v.style.borderColor = '';
+            v.style.background = '';
+          });
+          el.style.borderColor = 'var(--accent,#f97316)';
+          el.style.background = 'rgba(249,115,22,0.08)';
+
+          if (isCurrent && !entry._deleted) {
+            // Current version — reload normal preview (no ?version= param)
+            tab.preview_component = null;
+            this._loadPreview();
+          } else {
+            // Historical version — load from snapshot
+            const versionInfo = versions.find((v) => (v.id || v.snapshot) === snapshot);
+            this._previewAtSnapshot(panel, tab, entry, snapshot, versionInfo);
+          }
+        });
+
+        const restoreBtn = el.querySelector('.version-restore-btn');
+        if (restoreBtn) {
+          restoreBtn.addEventListener('confirm', (e) => {
+            e.stopPropagation();
+            this._confirmRestoreVersion(tab, entry, snapshot);
+          });
+        }
+      });
+
+      // Bind clipboard copy buttons
+      versionsList.querySelectorAll('.copy-id-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.copyId;
+          navigator.clipboard.writeText(id).then(() => {
+            btn.textContent = '\u2705';
+            setTimeout(() => { btn.textContent = '\uD83D\uDCCB'; }, 1500);
+          });
+        });
+      });
+    } catch (_) {
+      versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">Unable to load</div>';
+    }
+  }
+
+  /**
+   * Update the preview to show a file at a specific snapshot version.
+   */
+  async _previewAtSnapshot(panel, tab, entry, snapshot, versionInfo) {
+    const contentEl = panel.querySelector('.preview-content');
+    if (!contentEl) return;
+    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    // Use version info's content_type if available (deleted files have null content_type)
+    const contentType = (versionInfo && versionInfo.content_type) || entry.content_type || 'application/octet-stream';
+    const componentName = await loadPreviewComponent(contentType);
+    if (!componentName) return;
+
+    const existingPreview = contentEl.firstElementChild;
+    if (!existingPreview || existingPreview.tagName.toLowerCase() !== componentName) {
+      contentEl.innerHTML = `<${componentName}></${componentName}>`;
+    }
+    const previewEl = contentEl.querySelector(componentName);
+    if (previewEl) {
+      // Load the file at this snapshot version (use version= with hex hash ID)
+      const src = await this.getPreviewSrc(filePath + '?version=' + encodeURIComponent(snapshot), contentType);
+      previewEl.setAttribute('src', src);
+      previewEl.setAttribute('filename', entry.name);
+      if (previewEl.load) previewEl.load();
+    }
+    panel.querySelector('.preview-meta').textContent =
+      `Viewing snapshot: ${snapshot}`;
+
+    // Update the stored snapshot ID so "Restore Selected Snapshot" uses the right one
+    panel._currentSnapshotId = snapshot;
+  }
+
+  /**
+   * Confirm and restore a file to a specific snapshot version.
+   */
+  async _confirmRestoreVersion(tab, entry, snapshot) {
+    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    try {
+      await this._createSnapshot('auto-pre-restore ' + new Date().toISOString().replace('T', ' ').replace('Z', '')).catch(() => {});
+      await this._restoreFromSnapshot(filePath, snapshot);
+      if (window.aeorToast) window.aeorToast('Version restored', 'success');
+      // Delay refresh to let the confirmed-state button show for its full duration
+      this._refreshSuppressed = true;
+      setTimeout(() => {
+        this._refreshSuppressed = false;
+        this._fetchListing();
+      }, 5500);
+    } catch (error) {
+      if (window.aeorToast) window.aeorToast(`Restore failed: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Restore a file from a specific snapshot. Override in subclasses.
+   */
+  async _restoreFromSnapshot(filePath, snapshot) {
+    throw new Error('Restore from snapshot not implemented');
+  }
+
+  /**
+   * Take a snapshot immediately and flash the button text.
+   */
+  async _takeSnapshot(button) {
+    const now = new Date();
+    const pad = (n, d = 2) => String(n).padStart(d, '0');
+    const name = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
+
+    const original = button.textContent;
+    button.disabled = true;
+    try {
+      await this._createSnapshot(name);
+      button.textContent = 'Saved!';
+      button.style.background = 'var(--success,#3fb950)';
+      setTimeout(() => {
+        button.textContent = original;
+        button.disabled = false;
+      }, 1500);
+    } catch (error) {
+      button.textContent = 'Failed';
+      button.style.background = 'var(--danger,#f85149)';
+      setTimeout(() => {
+        button.textContent = original;
+        button.style.background = 'var(--success,#3fb950)';
+        button.disabled = false;
+      }, 2000);
+      if (window.aeorToast) window.aeorToast('Snapshot failed: ' + error.message, 'error');
+    }
+  }
+
+  /**
+   * Create a named snapshot. Override in subclasses.
+   */
+  async _createSnapshot(name) {
+    throw new Error('Snapshot not implemented');
+  }
+
+  /**
+   * Fetch version history for a file path. Override in subclasses.
+   * Should return an array of { snapshot, timestamp, change_type, size }.
+   */
+  async _fetchVersionHistory(filePath) {
+    return [];
+  }
+
   /**
    * Show a styled confirmation modal. Returns a Promise that resolves to
    * true (confirmed) or false (cancelled/dismissed).
    */
-  _confirm(title, message) {
+  _confirm(title, message, isHtml = false, confirmLabel = 'Delete', confirmStyle = 'danger') {
     return new Promise((resolve) => {
       const modal = document.createElement('aeor-modal');
       modal.title = title;
+      const bodyText = isHtml ? message : escapeHtml(message);
       modal.innerHTML = `
-        <p style="color: var(--text-primary, #e6edf3); margin: 0 0 20px 0; font-size: 0.95rem;">${escapeHtml(message)}</p>
+        <p style="color: var(--text-primary, #e6edf3); margin: 0 0 20px 0; font-size: 0.95rem;">${bodyText}</p>
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
           <button class="secondary small confirm-cancel">Cancel</button>
-          <button class="danger small confirm-ok">Delete</button>
+          <button class="${confirmStyle} small confirm-ok">${escapeHtml(confirmLabel)}</button>
         </div>
       `;
       document.body.appendChild(modal);
