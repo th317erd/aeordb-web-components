@@ -420,7 +420,7 @@ class AeorFileBrowserBase extends HTMLElement {
         ${breadcrumbs}
         <div style="display: flex; gap: 8px; align-items: center;">
           ${configBar}
-          <button class="primary small snapshot-button" style="background:var(--success,#3fb950);border-color:var(--success,#3fb950);">Snapshot</button>
+          <button class="success small snapshot-button">Snapshot</button>
           ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
@@ -430,9 +430,16 @@ class AeorFileBrowserBase extends HTMLElement {
     `;
 
     // Unified toolbar: selection actions on left, view controls on right (always visible)
+    const extraActions = this.selectionActions(tab) || '';
     const toolbarHtml = `
-      <div class="selection-bar">
-        <div class="selection-actions-left"></div>
+      <div class="selection-bar" style="display:flex;align-items:center;gap:8px;">
+        <div class="selection-actions-left" style="display:flex;align-items:center;gap:8px;visibility:hidden;">
+          <span class="selection-count" style="font-weight:600;white-space:nowrap;"></span>
+          ${extraActions}
+          <button class="secondary small selection-clear">Clear Selection</button>
+          <button class="primary small selection-restore" style="display:none;">Restore Selected</button>
+          ${this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+        </div>
         <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
           <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
           <div class="view-toggle">
@@ -443,18 +450,24 @@ class AeorFileBrowserBase extends HTMLElement {
       </div>
     `;
 
+    return `<div class="tab-header">${header}</div><div class="tab-toolbar">${toolbarHtml}</div><div class="tab-listing">${this._renderListingContent(tab, viewMode)}</div>`;
+  }
+
+  _renderListingContent(tab, viewMode) {
+    viewMode = viewMode || tab.view_mode || 'list';
+
     if (tab.loading) {
-      return `${header}${toolbarHtml}<div class="tab-listing"><div class="loading">Loading...</div></div>`;
+      return '<div class="loading">Loading...</div>';
     }
 
     const visible = this._getVisibleEntries(tab);
 
     if (visible.length === 0 && tab.entries.length === 0) {
-      return `${header}${toolbarHtml}<div class="tab-listing"><div class="empty-state">This directory is empty.</div></div>`;
+      return '<div class="empty-state">This directory is empty.</div>';
     }
 
     if (visible.length === 0 && tab.entries.length > 0) {
-      return `${header}${toolbarHtml}<div class="tab-listing"><div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div></div>`;
+      return `<div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div>`;
     }
 
     const hiddenCount = tab.entries.length - visible.length;
@@ -469,7 +482,7 @@ class AeorFileBrowserBase extends HTMLElement {
       ? this._renderGridViewFor(tab, visible)
       : this._renderListViewFor(tab, visible);
 
-    return `${header}${toolbarHtml}<div class="tab-listing">${listing}<div class="entry-count">${countText}</div>${loadingMore}</div>`;
+    return `${listing}<div class="entry-count">${countText}</div>${loadingMore}`;
   }
 
   _renderPreviewPanel(tab) {
@@ -671,31 +684,55 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._tabs.find((t) => t.id === tabId);
     if (!container || !tab) return;
 
-    // Only replace the listing area — preserve the preview panel
     const listingArea = container.querySelector('.tab-listing-area');
-    const listing = container.querySelector('.tab-listing');
-    const scrollTop = (listing) ? listing.scrollTop : 0;
 
-    if (listingArea) {
-      listingArea.innerHTML = this._renderDirectoryViewFor(tab);
-    } else {
-      // Fallback: full rebuild (first render)
+    if (!listingArea) {
+      // First render: full build
       container.innerHTML = `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>${this._renderPreviewPanel(tab)}`;
-    }
+      this._bindTabContentEvents(tabId);
+    } else {
+      // Selective update: only replace the file listing, preserve toolbar + header
+      const listing = listingArea.querySelector('.tab-listing');
+      const scrollTop = (listing) ? listing.scrollTop : 0;
 
-    this._bindTabContentEvents(tabId);
+      // Update breadcrumbs in place
+      const headerEl = listingArea.querySelector('.tab-header');
+      if (headerEl) {
+        const breadcrumbs = this._renderBreadcrumbs(tab);
+        const configActions = this._getConfigActions(tab);
+        const configBar = (configActions) ? `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${configActions}</div>` : '';
+        headerEl.innerHTML = `
+          <div class="page-header">
+            ${breadcrumbs}
+            <div style="display: flex; gap: 8px; align-items: center;">
+              ${configBar}
+              <button class="success small snapshot-button">Snapshot</button>
+              ${this._hasPermission('c') ? `
+              <button class="secondary small new-folder-button">New Folder</button>
+              <button class="primary small upload-button">Upload</button>
+              <input type="file" class="upload-input" style="display:none" multiple>` : ''}
+            </div>
+          </div>`;
+      }
 
-    // Restore scroll position
-    const newListing = container.querySelector('.tab-listing');
-    if (newListing && scrollTop > 0) {
-      newListing.scrollTop = scrollTop;
+      // Update listing content only (toolbar is preserved)
+      if (listing) {
+        listing.innerHTML = this._renderListingContent(tab);
+      }
+
+      // Re-bind events for the listing rows + header buttons (but toolbar stays intact)
+      this._bindTabContentEvents(tabId);
+
+      // Restore scroll position
+      const newListing = listingArea.querySelector('.tab-listing');
+      if (newListing && scrollTop > 0) {
+        newListing.scrollTop = scrollTop;
+      }
     }
 
     if (tabId === this._active_tab_id) {
       this._hydratePreview();
-      // Load image thumbnails with auth for grid view
-      const tab2 = this._tabs.find((t) => t.id === tabId);
-      if (tab2 && tab2.view_mode === 'grid') {
+      if (tab.view_mode === 'grid') {
         this._loadGridThumbnails(container);
       }
     }
@@ -845,7 +882,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
-      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-border:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
       ${extraActions}
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
@@ -967,10 +1004,20 @@ class AeorFileBrowserBase extends HTMLElement {
   _bindTabContentEvents(tabId) {
     const container = this.querySelector(`#tab-content-${tabId}`);
     if (!container) return;
-
     const tab = this._tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
+    // Toolbar events: bind once (idempotent via _toolbarBound flag)
+    if (!container._toolbarBound) {
+      this._bindToolbarEvents(container, tab, tabId);
+      container._toolbarBound = true;
+    }
+
+    // Listing events: re-bind every content update
+    this._bindListingEvents(container, tab, tabId);
+  }
+
+  _bindToolbarEvents(container, tab, tabId) {
     // Toggle hidden files
     const toggleHiddenBtn = container.querySelector('.toggle-hidden-btn');
     if (toggleHiddenBtn) {
@@ -986,6 +1033,27 @@ class AeorFileBrowserBase extends HTMLElement {
       });
     }
 
+    // Selection bar button listeners (buttons are always in DOM, visibility toggled)
+    const selClearBtn = container.querySelector('.selection-clear');
+    if (selClearBtn) selClearBtn.addEventListener('click', () => this._clearSelection(tab));
+    const selRestoreBtn = container.querySelector('.selection-restore');
+    if (selRestoreBtn) selRestoreBtn.addEventListener('click', () => this._restoreSelected());
+    const selDeleteBtn = container.querySelector('.selection-delete');
+    if (selDeleteBtn) selDeleteBtn.addEventListener('confirm', () => this._deleteSelected());
+    const selLeftSlot = container.querySelector('.selection-actions-left');
+    if (selLeftSlot) this._bindSelectionBarExtra(selLeftSlot, tab);
+
+    // View toggle
+    container.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tab.view_mode = btn.dataset.view;
+        this._saveState();
+        this._updateTabContent(tabId);
+      });
+    });
+  }
+
+  _bindListingEvents(container, tab, tabId) {
     // Sortable column headers
     container.querySelectorAll('th[data-sort]').forEach((th) => {
       th.addEventListener('click', () => {
@@ -997,15 +1065,6 @@ class AeorFileBrowserBase extends HTMLElement {
     container.querySelectorAll('.config-action-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         this._handleConfigAction(btn.dataset.action);
-      });
-    });
-
-    // View toggle
-    container.querySelectorAll('[data-view]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        tab.view_mode = btn.dataset.view;
-        this._saveState();
-        this._updateTabContent(tabId);
       });
     });
 
@@ -1334,41 +1393,26 @@ class AeorFileBrowserBase extends HTMLElement {
         el.classList.remove('selected');
     });
 
-    // Update the left side of the unified toolbar (selection actions)
+    // Toggle visibility of the selection actions (buttons are always in DOM)
     const leftSlot = container.querySelector('.selection-actions-left');
     if (leftSlot) {
       if (tab.selectedEntries.size > 0) {
-        const count = tab.selectedEntries.size;
-        const extraActions = this.selectionActions(tab) || '';
+        leftSlot.style.visibility = 'visible';
+        const countEl = leftSlot.querySelector('.selection-count');
+        if (countEl) countEl.textContent = `${tab.selectedEntries.size} selected`;
 
-        // Check if any selected entries are deleted files
-        const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
-        const hasDeletedSelected = [...tab.selectedEntries].some((path) => {
-          const name = path.split('/').pop();
-          return allEntries.some((e) => e.name === name && e._deleted);
-        });
-
-        leftSlot.innerHTML =
-          `<span class="selection-count">${count} selected</span>` +
-          `${extraActions}` +
-          '<button class="secondary small selection-clear">Clear Selection</button>' +
-          (hasDeletedSelected ? '<button class="primary small selection-restore">Restore Selected</button>' : '') +
-          (this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-border:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : '');
-
-        leftSlot.querySelector('.selection-clear').addEventListener('click', () => {
-          this._clearSelection(tab);
-        });
+        // Show/hide restore button based on whether deleted files are selected
         const restoreBtn = leftSlot.querySelector('.selection-restore');
-        if (restoreBtn) restoreBtn.addEventListener('click', () => {
-          this._restoreSelected();
-        });
-        const delBtn = leftSlot.querySelector('.selection-delete');
-        if (delBtn) delBtn.addEventListener('confirm', () => {
-          this._deleteSelected();
-        });
-        this._bindSelectionBarExtra(leftSlot, tab);
+        if (restoreBtn) {
+          const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
+          const hasDeletedSelected = [...tab.selectedEntries].some((path) => {
+            const name = path.split('/').pop();
+            return allEntries.some((e) => e.name === name && e._deleted);
+          });
+          restoreBtn.style.display = hasDeletedSelected ? '' : 'none';
+        }
       } else {
-        leftSlot.innerHTML = '';
+        leftSlot.style.visibility = 'hidden';
       }
     }
   }

@@ -76,17 +76,19 @@ export class AeorLongPressButton extends HTMLElement {
       <button class="lpb" style="
         position: relative;
         overflow: hidden;
-        padding: 6px 14px;
+        height: 28px;
+        padding: 0 10px;
         border: 1px solid var(--lpb-border, var(--border, #30363d));
         border-radius: var(--lpb-radius, 6px);
-        background: var(--lpb-bg, var(--card, #161b22));
+        background: var(--lpb-bg, var(--bg-tertiary, #21262d));
         color: var(--lpb-text, var(--text, #e6edf3));
         font: inherit;
-        font-size: 0.82rem;
+        font-size: 12px;
         cursor: pointer;
         user-select: none;
         touch-action: none;
         -webkit-user-select: none;
+        box-sizing: border-box;
       ">
         <span class="lpb-fill" style="
           position: absolute;
