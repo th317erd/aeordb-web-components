@@ -172,8 +172,8 @@ input.preview-title {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   cursor: pointer;
@@ -184,13 +184,13 @@ input.preview-title {
 }
 
 .tab:hover {
-  background: color-mix(in srgb, var(--bg-tertiary) 80%, #fff);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-secondary) 80%, #fff);
+  border-color: color-mix(in srgb, var(--border) 70%, #fff);
 }
 
 .tab.active {
-  background: var(--bg-secondary);
-  border-color: var(--border);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, #fff);
+  border-color: var(--accent);
   color: var(--text-primary);
 }
 

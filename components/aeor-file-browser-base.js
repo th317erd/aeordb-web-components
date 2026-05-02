@@ -364,7 +364,11 @@ class AeorFileBrowserBase extends HTMLElement {
 
     this.innerHTML = html;
     this._bindShellEvents();
-    this._bindTabContentEvents(this._active_tab_id);
+    // Bind events for ALL tab containers (not just active) since render()
+    // rebuilds everything — inactive tabs need handlers for when switched to.
+    for (const tab of this._tabs) {
+      this._bindTabContentEvents(tab.id);
+    }
     this._hydratePreview();
   }
 
