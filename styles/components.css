@@ -600,6 +600,15 @@ input.preview-title:focus {
 
 .context-menu-item:hover { background-color: var(--bg-tertiary); }
 
+.context-menu-danger { color: var(--error); }
+
+.context-menu-hotkey {
+  float: right;
+  margin-left: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 /* Upload progress */
 .upload-progress {
   background-color: var(--bg-secondary);

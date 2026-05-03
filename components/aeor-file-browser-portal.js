@@ -269,6 +269,34 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     }
   }
 
+  async _pasteAsCopy(paths, destination) {
+    const response = await window.api('/files/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, destination }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Copy failed' }));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async _pasteAsMove(paths, destination) {
+    for (const srcPath of paths) {
+      const name = srcPath.split('/').pop();
+      const toPath = destination.replace(/\/$/, '') + '/' + name;
+      await this.renamePath(srcPath, toPath);
+    }
+  }
+
+  async _createSymlink(path, target) {
+    const response = await window.api(`/files${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Aeor-Symlink': target },
+    });
+    if (!response.ok) throw new Error(`Symlink failed: ${response.status}`);
+  }
+
   async _fetchDeleted(dirPath) {
     const response = await window.api(`/files/deleted?path=${encodeURIComponent(dirPath)}`);
     if (!response.ok) return [];
@@ -341,7 +369,11 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   selectionActions(tab) {
+    const clipboard = this._getClipboard();
     return `
+      <button class="secondary small selection-cut">Cut</button>
+      <button class="secondary small selection-copy">Copy</button>
+      ${clipboard ? '<button class="secondary small selection-paste">Paste</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }
@@ -361,6 +393,25 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         const paths = [...tab.selectedEntries];
         if (paths.length > 0) this._showShareModal(paths);
       });
+    }
+    const cutBtn = selectionBar.querySelector('.selection-cut');
+    if (cutBtn) {
+      cutBtn.addEventListener('click', () => {
+        this._setClipboard('cut', [...tab.selectedEntries]);
+        this._updateTabContent(tab.id);
+        if (window.aeorToast) window.aeorToast('Files cut!', 'success');
+      });
+    }
+    const copyBtn = selectionBar.querySelector('.selection-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        this._setClipboard('copy', [...tab.selectedEntries]);
+        if (window.aeorToast) window.aeorToast('Files copied!', 'success');
+      });
+    }
+    const pasteBtn = selectionBar.querySelector('.selection-paste');
+    if (pasteBtn) {
+      pasteBtn.addEventListener('click', () => this._pasteClipboard());
     }
   }
 

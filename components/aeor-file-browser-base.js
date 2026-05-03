@@ -520,6 +520,9 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderListRow(entry) {
     const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
     const isDeleted = !!entry._deleted;
+    const clipboard = this._getClipboard();
+    const isCut = clipboard && clipboard.mode === 'cut' &&
+      clipboard.paths.some((p) => p.endsWith('/' + entry.name));
     const icon     = fileIcon(entry.entry_type);
     const size     = (isDir) ? '\u2014' : formatSize(entry.size);
     const created  = formatDate(entry.created_at);
@@ -528,7 +531,9 @@ class AeorFileBrowserBase extends HTMLElement {
       : formatDate(entry.updated_at);
     const rowStyle = isDeleted
       ? 'style="opacity:0.6;background:rgba(248,81,73,0.06);"'
-      : '';
+      : isCut
+        ? 'style="opacity:0.4;"'
+        : '';
     const nameStyle = isDeleted
       ? 'style="text-decoration:line-through;color:var(--danger,#f85149);"'
       : '';
@@ -1228,6 +1233,29 @@ class AeorFileBrowserBase extends HTMLElement {
       } else if (event.key === 'Escape') {
         if (tab.selectedEntries.size > 0)
           this._clearSelection(tab);
+      } else if ((event.ctrlKey || event.metaKey) && event.key === 'c' && !event.shiftKey) {
+        if (tab.selectedEntries.size > 0) {
+          event.preventDefault();
+          this._setClipboard('copy', [...tab.selectedEntries]);
+          if (window.aeorToast) window.aeorToast('Files copied!', 'success');
+        }
+      } else if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+        if (tab.selectedEntries.size > 0) {
+          event.preventDefault();
+          this._setClipboard('cut', [...tab.selectedEntries]);
+          this._updateTabContent(tab.id);
+          if (window.aeorToast) window.aeorToast('Files cut!', 'success');
+        }
+      } else if ((event.ctrlKey || event.metaKey) && event.key === 'v' && event.shiftKey) {
+        event.preventDefault();
+        this._pasteAsSymlinks();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        event.preventDefault();
+        this._pasteClipboard();
+      } else if (event.key === 'Delete') {
+        if (tab.selectedEntries.size > 0) {
+          this._deleteSelected();
+        }
       }
     };
 
@@ -1465,6 +1493,11 @@ class AeorFileBrowserBase extends HTMLElement {
           });
           restoreBtn.style.display = hasDeletedSelected ? '' : 'none';
         }
+
+        const pasteBtn = leftSlot.querySelector('.selection-paste');
+        if (pasteBtn) {
+          pasteBtn.style.display = this._getClipboard() ? '' : 'none';
+        }
       } else {
         leftSlot.style.visibility = 'hidden';
       }
@@ -1500,6 +1533,18 @@ class AeorFileBrowserBase extends HTMLElement {
     this._fetchListing();
   }
 
+  async _deleteInstant(entry) {
+    const tab = this._activeTab();
+    if (!tab) return;
+    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    try {
+      await this.deletePath(filePath);
+      this._fetchListing();
+    } catch (error) {
+      if (window.aeorToast) window.aeorToast('Delete failed: ' + error.message, 'error');
+    }
+  }
+
   /**
    * Extra HTML for the selection bar. Override in subclasses to add buttons
    * like "Download ZIP". Default: none.
@@ -1513,6 +1558,99 @@ class AeorFileBrowserBase extends HTMLElement {
    */
   _bindSelectionBarExtra(selectionBar, tab) {
     // default: no extra bindings
+  }
+
+  // -------------------------------------------------------------------------
+  // Clipboard helpers
+  // -------------------------------------------------------------------------
+
+  _getClipboard() {
+    try {
+      const raw = sessionStorage.getItem('aeordb-clipboard');
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  }
+
+  _setClipboard(mode, paths) {
+    sessionStorage.setItem('aeordb-clipboard', JSON.stringify({ mode, paths }));
+  }
+
+  _clearClipboard() {
+    sessionStorage.removeItem('aeordb-clipboard');
+  }
+
+  _cutSelected(contextEntry) {
+    const tab = this._activeTab();
+    if (!tab) return;
+    const paths = tab.selectedEntries.size > 0
+      ? [...tab.selectedEntries]
+      : [tab.path.replace(/\/$/, '') + '/' + contextEntry.name];
+    this._setClipboard('cut', paths);
+    this._updateTabContent(tab.id);
+    if (window.aeorToast) window.aeorToast('Files cut!', 'success');
+  }
+
+  _copySelected(contextEntry) {
+    const tab = this._activeTab();
+    if (!tab) return;
+    const paths = tab.selectedEntries.size > 0
+      ? [...tab.selectedEntries]
+      : [tab.path.replace(/\/$/, '') + '/' + contextEntry.name];
+    this._setClipboard('copy', paths);
+    if (window.aeorToast) window.aeorToast('Files copied!', 'success');
+  }
+
+  async _pasteClipboard() {
+    const clipboard = this._getClipboard();
+    if (!clipboard || !clipboard.paths.length) return;
+    const tab = this._activeTab();
+    if (!tab) return;
+
+    try {
+      if (clipboard.mode === 'copy') {
+        await this._pasteAsCopy(clipboard.paths, tab.path);
+      } else {
+        await this._pasteAsMove(clipboard.paths, tab.path);
+      }
+      this._clearClipboard();
+      this._fetchListing();
+      if (window.aeorToast) window.aeorToast('Files pasted!', 'success');
+    } catch (error) {
+      if (window.aeorToast) window.aeorToast('Paste failed: ' + error.message, 'error');
+    }
+  }
+
+  async _pasteAsSymlinks() {
+    const clipboard = this._getClipboard();
+    if (!clipboard || !clipboard.paths.length) return;
+    const tab = this._activeTab();
+    if (!tab) return;
+
+    let errors = 0;
+    for (const srcPath of clipboard.paths) {
+      const name = srcPath.split('/').pop();
+      const linkPath = tab.path.replace(/\/$/, '') + '/' + name;
+      try {
+        await this._createSymlink(linkPath, srcPath);
+      } catch (_) { errors++; }
+    }
+    this._clearClipboard();
+    this._fetchListing();
+    if (errors > 0) {
+      if (window.aeorToast) window.aeorToast(`${errors} symlink(s) failed`, 'error');
+    } else {
+      if (window.aeorToast) window.aeorToast('Symlinks created!', 'success');
+    }
+  }
+
+  async _pasteAsCopy(paths, destination) {
+    throw new Error('_pasteAsCopy must be implemented by subclass');
+  }
+  async _pasteAsMove(paths, destination) {
+    throw new Error('_pasteAsMove must be implemented by subclass');
+  }
+  async _createSymlink(path, target) {
+    throw new Error('_createSymlink must be implemented by subclass');
   }
 
   // -------------------------------------------------------------------------
@@ -2829,39 +2967,55 @@ class AeorFileBrowserBase extends HTMLElement {
     const existing = this.querySelector('.context-menu');
     if (existing) existing.remove();
 
+    const isMac = navigator.platform.includes('Mac');
+    const mod = isMac ? 'Cmd' : 'Ctrl';
+    const clipboard = this._getClipboard();
+    const tab = this._activeTab();
+
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
     menu.innerHTML = `
       <div class="context-menu-item" data-context="preview">Preview</div>
-      ${this._hasPermission('y') ? '<div class="context-menu-item" data-context="share">Share</div>' : ''}
-      ${this._hasPermission('u') ? '<div class="context-menu-item" data-context="rename">Rename</div>' : ''}
-      ${this._hasPermission('d') ? '<div class="context-menu-item context-menu-danger" data-context="delete">Delete</div>' : ''}
+      ${this._hasPermission('y') ? `<div class="context-menu-item" data-context="share">Share</div>` : ''}
+      ${this._hasPermission('u') ? `<div class="context-menu-item" data-context="cut">Cut <span class="context-menu-hotkey">${mod}+X</span></div>` : ''}
+      <div class="context-menu-item" data-context="copy">Copy <span class="context-menu-hotkey">${mod}+C</span></div>
+      ${clipboard ? `<div class="context-menu-item" data-context="paste">Paste <span class="context-menu-hotkey">${mod}+V</span></div>` : ''}
+      ${this._hasPermission('d') ? '<hr style="border:none;border-top:1px solid var(--border,#30363d);margin:4px 0;">' : ''}
+      ${this._hasPermission('d') ? `<div class="context-menu-item context-menu-danger" data-context="delete-instant">Delete <span class="context-menu-hotkey">Del</span></div>` : ''}
     `;
 
     this.appendChild(menu);
 
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (x - rect.width) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (y - rect.height) + 'px';
+
     menu.querySelectorAll('.context-menu-item').forEach((item) => {
       item.addEventListener('click', () => {
         menu.remove();
-        const activeTab = this._activeTab();
-        if (item.dataset.context === 'preview') {
-          if (activeTab) {
-            activeTab.preview_entry = entry;
-            activeTab.preview_component = null;
+        const action = item.dataset.context;
+        if (action === 'preview') {
+          if (tab) {
+            tab.preview_entry = entry;
+            tab.preview_component = null;
           }
           this._loadPreview();
-        } else if (item.dataset.context === 'share') {
-          if (activeTab) {
-            let filePath = activeTab.path.replace(/\/$/, '') + '/' + entry.name;
-            // Directories need trailing slash so the server creates a wildcard glob
+        } else if (action === 'share') {
+          if (tab) {
+            let filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
             if (entry.entry_type === ENTRY_TYPE_DIR) filePath += '/';
             this._showShareModal([filePath]);
           }
-        } else {
-          if (activeTab) activeTab.preview_entry = entry;
-          this._handlePreviewAction(item.dataset.context);
+        } else if (action === 'cut') {
+          this._cutSelected(entry);
+        } else if (action === 'copy') {
+          this._copySelected(entry);
+        } else if (action === 'paste') {
+          this._pasteClipboard();
+        } else if (action === 'delete-instant') {
+          this._deleteInstant(entry);
         }
       });
     });
