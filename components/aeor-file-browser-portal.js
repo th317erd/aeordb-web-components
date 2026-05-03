@@ -342,9 +342,12 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
 
   selectionActions(tab) {
     return `
-      ${this._hasPermission('y') ? '<button class="secondary small selection-share">Share</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
+  }
+
+  selectionActionsRight(tab) {
+    return this._hasPermission('y') ? '<button class="secondary small selection-share">Share</button>' : '';
   }
 
   _bindSelectionBarExtra(selectionBar, tab) {

@@ -394,12 +394,16 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _getVisibleEntries(tab) {
-    // Always include deleted entries (they're only present when eye toggle is on)
     const live = this._showHidden
       ? tab.entries
       : tab.entries.filter((e) => !e.name.startsWith('.'));
     const deleted = tab._deletedEntries || [];
-    return [...live, ...deleted];
+    const all = [...live, ...deleted];
+
+    // Directories always sort before files
+    const dirs = all.filter((e) => e.entry_type === ENTRY_TYPE_DIR);
+    const files = all.filter((e) => e.entry_type !== ENTRY_TYPE_DIR);
+    return [...dirs, ...files];
   }
 
   _getConfigActions(tab) {
@@ -435,14 +439,16 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Unified toolbar: selection actions on left, view controls on right (always visible)
     const extraActions = this.selectionActions(tab) || '';
+    const extraActionsRight = (this.selectionActionsRight ? this.selectionActionsRight(tab) : '') || '';
     const toolbarHtml = `
       <div class="selection-bar" style="display:flex;align-items:center;gap:8px;">
         <div class="selection-actions-left" style="display:flex;align-items:center;gap:8px;visibility:hidden;">
           <span class="selection-count" style="font-weight:600;white-space:nowrap;"></span>
+          ${this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
+          ${extraActionsRight}
           <button class="primary small selection-restore" style="display:none;">Restore Selected</button>
-          ${this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
           <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
@@ -461,7 +467,7 @@ class AeorFileBrowserBase extends HTMLElement {
     viewMode = viewMode || tab.view_mode || 'list';
 
     if (tab.loading) {
-      return '<div class="loading">Loading...</div>';
+      return '';
     }
 
     const visible = this._getVisibleEntries(tab);
@@ -975,6 +981,43 @@ class AeorFileBrowserBase extends HTMLElement {
     panel.style.display = '';
   }
 
+  /**
+   * Show a minimal preview panel for directories — just the name and version history.
+   */
+  _showDirectoryPreview(tab) {
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    if (!container) return;
+    const panel = container.querySelector('.preview-panel');
+    if (!panel) return;
+    const entry = tab.preview_entry;
+    if (!entry) { panel.style.display = 'none'; return; }
+
+    const titleInput = panel.querySelector('.preview-title');
+    titleInput.value = entry.name;
+    titleInput.readOnly = true;
+    titleInput.style.pointerEvents = 'none';
+
+    panel.querySelector('.preview-actions').innerHTML =
+      `<button class="secondary small" data-action="close-preview">\u2715</button>`;
+
+    panel.querySelector('.preview-content').innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted,#8b949e);font-size:2rem;">&#128193;</div>';
+
+    panel.querySelector('.preview-meta').textContent =
+      `Directory \u00B7 ${formatDate(entry.created_at)}`;
+
+    this._loadVersionHistory(panel, tab, entry);
+
+    panel.querySelectorAll('[data-action]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this._handlePreviewAction(button.dataset.action);
+      });
+    });
+
+    panel.style.display = '';
+  }
+
   // -------------------------------------------------------------------------
   // Event binding
   // -------------------------------------------------------------------------
@@ -1027,6 +1070,10 @@ class AeorFileBrowserBase extends HTMLElement {
     if (toggleHiddenBtn) {
       toggleHiddenBtn.addEventListener('click', async () => {
         this._showHidden = !this._showHidden;
+        // Update button visual (toolbar is preserved, not rebuilt)
+        toggleHiddenBtn.classList.toggle('primary', this._showHidden);
+        toggleHiddenBtn.classList.toggle('secondary', !this._showHidden);
+        toggleHiddenBtn.title = this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files';
         const tab = this._tabs.find((t) => t.id === tabId);
         if (this._showHidden && tab) {
           await this._fetchDeletedEntries(tab);
@@ -1109,11 +1156,13 @@ class AeorFileBrowserBase extends HTMLElement {
           tab.lastSelectedAnchor = entryPath;
           this._updateSelectionVisual(tab);
 
-          // Preview for files only (directories don't have previews)
+          // Preview: files get full preview, directories get version history only
+          tab.preview_entry = visibleEntries.find((e) => e.name === entryName) || null;
+          tab.preview_component = null;
           if (entryType !== ENTRY_TYPE_DIR) {
-            tab.preview_entry = visibleEntries.find((e) => e.name === entryName) || null;
-            tab.preview_component = null;
             this._loadPreview();
+          } else {
+            this._showDirectoryPreview(tab);
           }
         } else if (isCtrl) {
           // Ctrl+Click — toggle individual entry
@@ -1367,6 +1416,7 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.preview_entry = null;
     tab.selectedEntries.clear();
     tab.lastSelectedAnchor = null;
+    this._updateSelectionVisual(tab);
     this._saveState();
     // Update tab bar label (breadcrumb changed)
     this._updateTabBarLabel(tab);
@@ -1478,7 +1528,15 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.total = null;
     tab.loading_more = false;
     tab.loading = true;
-    this._updateTabContent(tab.id);
+    // Non-destructive loading: dim existing content instead of replacing with "Loading..."
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    const listingArea = container && container.querySelector('.tab-listing-area');
+    const listing = listingArea && listingArea.querySelector('.tab-listing');
+    if (listing) {
+      listing.style.opacity = '0.5';
+      listing.style.pointerEvents = 'none';
+      listing.style.cursor = 'wait';
+    }
 
     try {
       const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);

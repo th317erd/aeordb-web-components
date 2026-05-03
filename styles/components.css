@@ -689,7 +689,7 @@ button.primary {
 }
 
 button.primary:hover {
-  filter: brightness(1.15);
+  background: var(--accent-hover);
   border-color: #fff;
 }
 
@@ -723,7 +723,7 @@ button.success {
 }
 
 button.success:hover {
-  filter: brightness(1.15);
+  background: color-mix(in srgb, var(--success) 80%, #fff);
   border-color: #fff;
 }
 

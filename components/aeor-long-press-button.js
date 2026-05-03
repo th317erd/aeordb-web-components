@@ -72,6 +72,19 @@ export class AeorLongPressButton extends HTMLElement {
   }
 
   _render() {
+    // Inject hover styles once
+    if (!document.getElementById('aeor-lpb-styles')) {
+      const s = document.createElement('style');
+      s.id = 'aeor-lpb-styles';
+      s.textContent = `
+        aeor-long-press-button .lpb:hover {
+          background: color-mix(in srgb, var(--lpb-bg, var(--bg-tertiary, #21262d)) 80%, #fff) !important;
+          border-color: var(--lpb-fill, var(--danger, #f85149)) !important;
+        }
+      `;
+      document.head.appendChild(s);
+    }
+
     this.innerHTML = `
       <button class="lpb" style="
         position: relative;
@@ -89,6 +102,7 @@ export class AeorLongPressButton extends HTMLElement {
         touch-action: none;
         -webkit-user-select: none;
         box-sizing: border-box;
+        transition: background-color 0.15s, border-color 0.15s;
       ">
         <span class="lpb-fill" style="
           position: absolute;
@@ -137,6 +151,11 @@ export class AeorLongPressButton extends HTMLElement {
     // Fade background to transparent at 2x speed (fully gone at 50% progress)
     const bgOpacity = Math.max(0, 1 - pct * 2);
     this._btn.style.backgroundColor = `color-mix(in srgb, ${this._originalBg} ${Math.round(bgOpacity * 100)}%, transparent)`;
+    // Fade text color from original to white as progress increases
+    const label = this.querySelector('.lpb-label');
+    if (label) {
+      label.style.color = `color-mix(in srgb, white ${Math.round(pct * 100)}%, var(--lpb-text, var(--text, #e6edf3)))`;
+    }
 
     if (pct >= 1) {
       this._pressing = false;
@@ -181,6 +200,8 @@ export class AeorLongPressButton extends HTMLElement {
     }
     if (this._btn) {
       this._btn.style.borderColor = '';
+      const label = this.querySelector('.lpb-label');
+      if (label) label.style.color = '';
       // Restore original background with a smooth transition
       this._btn.style.transition = 'background-color 0.2s ease-out';
       this._btn.style.backgroundColor = this._originalBg || '';
