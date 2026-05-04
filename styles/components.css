@@ -440,6 +440,7 @@ input.preview-title {
 .selection-bar .selection-count {
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 /* View toggle */
@@ -804,7 +805,7 @@ input.preview-title:focus {
   }
 
   /* Toolbar: wrap view toggle + buttons */
-  .page-header > div[style] {
+  .page-header-actions {
     flex-wrap: wrap;
   }
 
@@ -893,6 +894,12 @@ aeor-tab {
 
 /* Hidden utility (display:none toggle) */
 .hidden { display: none; }
+
+/* Invisible (visibility hidden, keeps layout) */
+.invisible { visibility: hidden; }
+
+/* Flex utility */
+.flex-1 { flex: 1; }
 
 /* Preview panel inner layout: main + versions sidebar */
 .preview-inner {
@@ -1313,15 +1320,15 @@ aeor-tab {
   margin-top: 2px;
 }
 
+/* Version change type colors */
+.version-change-added { color: var(--success, #3fb950); }
+.version-change-deleted { color: var(--danger, #f85149); }
+.version-change-modified { color: var(--accent, #f97316); }
+.version-change-other { color: var(--text-muted, #8b949e); }
+
 /* Muted text helper */
 .text-muted {
   color: var(--text-muted, #8b949e);
-}
-
-/* Selection count */
-.selection-count {
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 /* Snapshot button flash states */

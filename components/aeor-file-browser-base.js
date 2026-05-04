@@ -443,7 +443,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const extraActionsRight = (this.selectionActionsRight ? this.selectionActionsRight(tab) : '') || '';
     const toolbarHtml = `
       <div class="selection-bar">
-        <div class="selection-actions-left" style="visibility:hidden;">
+        <div class="selection-actions-left invisible">
           <span class="selection-count"></span>
           ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
           ${extraActions}
@@ -528,20 +528,14 @@ class AeorFileBrowserBase extends HTMLElement {
     const size     = (isDir) ? '\u2014' : formatSize(entry.size);
     const created  = formatDate(entry.created_at);
     const modified = isDeleted
-      ? `<span style="color:var(--danger,#f85149);">Deleted ${formatDate(entry._deleted_at)}</span>`
+      ? `<span class="text-danger">Deleted ${formatDate(entry._deleted_at)}</span>`
       : formatDate(entry.updated_at);
-    const rowStyle = isDeleted
-      ? 'style="opacity:0.6;background:rgba(248,81,73,0.06);"'
-      : isCut
-        ? 'style="opacity:0.4;"'
-        : '';
-    const nameStyle = isDeleted
-      ? 'style="text-decoration:line-through;color:var(--danger,#f85149);"'
-      : '';
+    const rowClass = isDeleted ? ' deleted-row' : isCut ? ' cut-row' : '';
+    const nameClass = isDeleted ? ' class="deleted-file-name"' : '';
 
     return `
-      <tr class="file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''} ${rowStyle}>
-        <td><span class="file-icon">${icon}</span><span ${nameStyle}>${escapeHtml(entry.name)}</span></td>
+      <tr class="file-entry${rowClass}" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''}>
+        <td><span class="file-icon">${icon}</span><span${nameClass}>${escapeHtml(entry.name)}</span></td>
         <td>${size}</td>
         <td>${created}</td>
         <td>${modified}</td>
@@ -585,14 +579,12 @@ class AeorFileBrowserBase extends HTMLElement {
       }
 
       const isDeleted = !!entry._deleted;
-      const deletedStyle = isDeleted ? 'opacity:0.5;border-color:var(--danger,#f85149);' : '';
-      const nameStyle = isDeleted ? 'text-decoration:line-through;color:var(--danger,#f85149);' : '';
 
       return `
-        <div class="grid-card file-entry" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''} style="${deletedStyle}">
+        <div class="grid-card file-entry${isDeleted ? ' deleted-card' : ''}" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''}>
           ${thumbnail}
-          <div class="grid-card-name" title="${escapeAttr(entry.name)}" style="${nameStyle}">${escapeHtml(this._truncate(entry.name, 20))}</div>
-          <div class="grid-card-meta">${isDeleted ? '<span style="color:var(--danger,#f85149);">Deleted</span>' : size}</div>
+          <div class="grid-card-name${isDeleted ? ' deleted-name' : ''}" title="${escapeAttr(entry.name)}">${escapeHtml(this._truncate(entry.name, 20))}</div>
+          <div class="grid-card-meta">${isDeleted ? '<span class="text-danger">Deleted</span>' : size}</div>
         </div>
       `;
     }).join('');
@@ -681,7 +673,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
       // Play icon overlay
       el.insertAdjacentHTML('beforeend',
-        '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;opacity:0.8;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.6);">\u25B6</div>');
+        '<div class="grid-card-play-overlay">\u25B6</div>');
       el.style.position = 'relative';
 
       // Release resources
@@ -730,18 +722,18 @@ class AeorFileBrowserBase extends HTMLElement {
       if (headerEl) {
         const breadcrumbs = this._renderBreadcrumbs(tab);
         const configActions = this._getConfigActions(tab);
-        const configBar = (configActions) ? `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${configActions}</div>` : '';
+        const configBar = (configActions) ? `<div class="config-actions-bar">${configActions}</div>` : '';
         headerEl.innerHTML = `
           <div class="page-header">
             ${breadcrumbs}
-            <div style="display: flex; gap: 8px; align-items: center;">
+            <div class="page-header-actions">
               ${configBar}
-              <button class="secondary small header-paste-btn" style="display:none;">Paste</button>
+              <button class="secondary small header-paste-btn hidden">Paste</button>
               <button class="success small snapshot-button">Snapshot</button>
               ${this._hasPermission('c') ? `
               <button class="secondary small new-folder-button">New Folder</button>
               <button class="primary small upload-button">Upload</button>
-              <input type="file" class="upload-input" style="display:none" multiple>` : ''}
+              <input type="file" class="upload-input hidden" multiple>` : ''}
             </div>
           </div>`;
       }
@@ -749,10 +741,8 @@ class AeorFileBrowserBase extends HTMLElement {
       // Update listing content only (toolbar is preserved)
       if (listing) {
         listing.innerHTML = this._renderListingContent(tab);
-        // Clear any loading state styles (dimming/cursor from _fetchListing)
-        listing.style.opacity = '';
-        listing.style.pointerEvents = '';
-        listing.style.cursor = '';
+        // Clear any loading state class (dimming/cursor from _fetchListing)
+        listing.classList.remove('loading');
       }
 
       // Re-bind events for the listing rows + header buttons (but toolbar stays intact)
@@ -785,17 +775,17 @@ class AeorFileBrowserBase extends HTMLElement {
     const componentName = tab.preview_component;
 
     if (!entry) {
-      panel.style.display = 'none';
+      panel.classList.add('hidden');
       return;
     }
 
     // Deleted file: check for snapshots first
     if (entry._deleted) {
-      panel.style.display = '';
+      panel.classList.remove('hidden');
       const titleInput = panel.querySelector('.preview-title');
       titleInput.value = entry.name;
       titleInput.readOnly = true;
-      titleInput.style.pointerEvents = 'none';
+      titleInput.classList.add('no-pointer-events');
 
       // Fetch version history to determine if we have snapshots
       const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
@@ -810,7 +800,7 @@ class AeorFileBrowserBase extends HTMLElement {
       if (latestVersion) {
         // Has snapshots — show preview of the latest version
         panel.querySelector('.preview-actions').innerHTML = `
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div class="preview-actions-row">
             <aeor-info-box compact>Any version can be safely restored.</aeor-info-box>
             <aeor-confirm-button class="restore-snapshot-btn" label="Restore Selected Snapshot" confirmed-text="File Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);"></aeor-confirm-button>
             <button class="secondary small" data-action="close-preview">\u2715</button>
@@ -868,13 +858,13 @@ class AeorFileBrowserBase extends HTMLElement {
 
         const contentEl = panel.querySelector('.preview-content');
         contentEl.innerHTML = `
-          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:40px;text-align:center;">
-            <div style="font-size:3rem;margin-bottom:16px;opacity:0.4;">&#128465;</div>
-            <div style="color:var(--danger,#f85149);font-size:1rem;font-weight:600;margin-bottom:8px;">File Deleted</div>
-            <div style="color:var(--text-muted,#8b949e);font-size:0.85rem;">
+          <div class="deleted-file-placeholder">
+            <div class="deleted-file-icon">&#128465;</div>
+            <div class="deleted-file-title">File Deleted</div>
+            <div class="deleted-file-info">
               Deleted on ${formatDate(entry._deleted_at)}
             </div>
-            <div style="color:var(--text-muted,#8b949e);font-size:0.82rem;margin-top:16px;">
+            <div class="deleted-file-hint">
               No snapshots available. Click <strong>Restore Deleted File</strong> to recover from the database history.
             </div>
           </div>
@@ -883,7 +873,7 @@ class AeorFileBrowserBase extends HTMLElement {
         panel.querySelector('.preview-meta').textContent = `Deleted \u00B7 ${formatDate(entry._deleted_at)}`;
 
         const versionsPanel = panel.querySelector('.preview-versions');
-        if (versionsPanel) versionsPanel.style.display = 'none';
+        if (versionsPanel) versionsPanel.classList.add('hidden');
 
         // Bind action buttons
         panel.querySelectorAll('[data-action]').forEach((button) => {
@@ -901,7 +891,7 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     if (!componentName) {
-      panel.style.display = 'none';
+      panel.classList.add('hidden');
       return;
     }
 
@@ -912,7 +902,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const canRename = this._hasPermission('u', entry);
     titleInput.readOnly = !canRename;
     titleInput.tabIndex = canRename ? 0 : -1;
-    titleInput.style.pointerEvents = canRename ? '' : 'none';
+    titleInput.classList.toggle('no-pointer-events', !canRename);
 
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
@@ -952,14 +942,14 @@ class AeorFileBrowserBase extends HTMLElement {
     if (warningEl) {
       const isSystemFile = /\/\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(filePath) || /^\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(entry.name);
       if (isSystemFile) {
-        warningEl.style.display = '';
+        warningEl.classList.remove('hidden');
         warningEl.innerHTML = `
-          <div style="display:flex;gap:10px;align-items:flex-start;padding:12px 16px;background:rgba(210,153,34,0.1);border:1px solid rgba(210,153,34,0.3);border-radius:6px;margin-top:8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span style="color:#d29922;font-size:0.85rem;line-height:1.5;">This is a system configuration file. Modifying or deleting it may affect database behavior and could cause instability.</span>
+          <div class="system-file-warning">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span class="system-file-warning-text">This is a system configuration file. Modifying or deleting it may affect database behavior and could cause instability.</span>
           </div>`;
       } else {
-        warningEl.style.display = 'none';
+        warningEl.classList.add('hidden');
         warningEl.innerHTML = '';
       }
     }
@@ -1003,7 +993,7 @@ class AeorFileBrowserBase extends HTMLElement {
     });
 
     // Show it
-    panel.style.display = '';
+    panel.classList.remove('hidden');
   }
 
   /**
@@ -1015,7 +1005,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const panel = container.querySelector('.preview-panel');
     if (!panel) return;
     const entry = tab.preview_entry;
-    if (!entry) { panel.style.display = 'none'; return; }
+    if (!entry) { panel.classList.add('hidden'); return; }
 
     // Editable folder name
     const titleInput = panel.querySelector('.preview-title');
@@ -1024,7 +1014,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const canRename = this._hasPermission('u', entry);
     titleInput.readOnly = !canRename;
     titleInput.tabIndex = canRename ? 0 : -1;
-    titleInput.style.pointerEvents = canRename ? '' : 'none';
+    titleInput.classList.toggle('no-pointer-events', !canRename);
 
     // Action buttons — Delete, Download ZIP, Share, Close
     const dirActions = this.directoryPreviewActions(entry) || '';
@@ -1035,7 +1025,7 @@ class AeorFileBrowserBase extends HTMLElement {
     `;
 
     panel.querySelector('.preview-content').innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:5rem;">&#128193;</div>';
+      '<div class="directory-preview-icon">&#128193;</div>';
 
     panel.querySelector('.preview-meta').textContent =
       `Directory \u00B7 ${formatDate(entry.created_at)}`;
@@ -1073,7 +1063,7 @@ class AeorFileBrowserBase extends HTMLElement {
       }
     });
 
-    panel.style.display = '';
+    panel.classList.remove('hidden');
   }
 
   /**
@@ -1188,7 +1178,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Header paste button (rebuilt with header, so bind each time)
     const headerPasteBtn = container.querySelector('.header-paste-btn');
     if (headerPasteBtn) {
-      headerPasteBtn.style.display = this._getClipboard() ? '' : 'none';
+      headerPasteBtn.classList.toggle('hidden', !this._getClipboard());
       headerPasteBtn.addEventListener('click', () => this._pasteClipboard());
     }
 
@@ -1472,7 +1462,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Hide current tab content
     const currentContainer = this.querySelector(`#tab-content-${this._active_tab_id}`);
-    if (currentContainer) currentContainer.style.display = 'none';
+    if (currentContainer) currentContainer.classList.add('hidden');
 
     const currentTabEl = this.querySelector(`.tab[data-tab-id="${this._active_tab_id}"]`);
     if (currentTabEl) currentTabEl.classList.remove('active');
@@ -1481,7 +1471,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._active_tab_id = tabId;
 
     const newContainer = this.querySelector(`#tab-content-${tabId}`);
-    if (newContainer) newContainer.style.display = '';
+    if (newContainer) newContainer.classList.remove('hidden');
 
     const newTabEl = this.querySelector(`.tab[data-tab-id="${tabId}"]`);
     if (newTabEl) newTabEl.classList.add('active');
@@ -1561,7 +1551,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const leftSlot = container.querySelector('.selection-actions-left');
     if (leftSlot) {
       if (tab.selectedEntries.size > 0) {
-        leftSlot.style.visibility = 'visible';
+        leftSlot.classList.remove('invisible');
         const countEl = leftSlot.querySelector('.selection-count');
         if (countEl) countEl.textContent = `${tab.selectedEntries.size} selected`;
 
@@ -1573,18 +1563,18 @@ class AeorFileBrowserBase extends HTMLElement {
             const name = path.split('/').pop();
             return allEntries.some((e) => e.name === name && e._deleted);
           });
-          restoreBtn.style.display = hasDeletedSelected ? '' : 'none';
+          restoreBtn.classList.toggle('hidden', !hasDeletedSelected);
         }
 
       } else {
-        leftSlot.style.visibility = 'hidden';
+        leftSlot.classList.add('invisible');
       }
     }
 
     // Header paste button — always visible when clipboard has items
     const headerPasteBtn = container.querySelector('.header-paste-btn');
     if (headerPasteBtn) {
-      headerPasteBtn.style.display = this._getClipboard() ? '' : 'none';
+      headerPasteBtn.classList.toggle('hidden', !this._getClipboard());
     }
   }
 
@@ -1755,9 +1745,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const listingArea = container && container.querySelector('.tab-listing-area');
     const listing = listingArea && listingArea.querySelector('.tab-listing');
     if (listing && listing.children.length > 0) {
-      listing.style.opacity = '0.5';
-      listing.style.pointerEvents = 'none';
-      listing.style.cursor = 'wait';
+      listing.classList.add('loading');
     } else {
       // No existing content to dim — ensure the DOM structure exists
       this._updateTabContent(tab.id);
@@ -2031,23 +2019,13 @@ class AeorFileBrowserBase extends HTMLElement {
     const modal = document.createElement('aeor-modal');
     modal.title = 'Add Index';
     modal.innerHTML = `
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Field Name</label>
-        <input type="text" class="index-field-name" placeholder="e.g. email" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Field Name</label>
+        <input type="text" class="index-field-name modal-field-input" placeholder="e.g. email">
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Index Type</label>
-        <select class="index-field-type" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Index Type</label>
+        <select class="index-field-type modal-field-input">
           <option value="string">string</option>
           <option value="u64">u64</option>
           <option value="i64">i64</option>
@@ -2058,25 +2036,15 @@ class AeorFileBrowserBase extends HTMLElement {
           <option value="phonetic">phonetic</option>
         </select>
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Min Value (optional, numeric types)</label>
-        <input type="number" class="index-field-min" placeholder="" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Min Value (optional, numeric types)</label>
+        <input type="number" class="index-field-min modal-field-input" placeholder="">
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Max Value (optional, numeric types)</label>
-        <input type="number" class="index-field-max" placeholder="" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Max Value (optional, numeric types)</label>
+        <input type="number" class="index-field-max modal-field-input" placeholder="">
       </div>
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <div class="modal-footer-actions">
         <button class="secondary small modal-cancel">Cancel</button>
         <button class="primary small modal-save">Add Index</button>
       </div>
@@ -2150,25 +2118,15 @@ class AeorFileBrowserBase extends HTMLElement {
     const modal = document.createElement('aeor-modal');
     modal.title = 'Add Parser';
     modal.innerHTML = `
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Content Type</label>
-        <input type="text" class="parser-content-type" placeholder="e.g. application/pdf" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Content Type</label>
+        <input type="text" class="parser-content-type modal-field-input" placeholder="e.g. application/pdf">
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Parser Path</label>
-        <input type="text" class="parser-path" placeholder="e.g. /parsers/pdf" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Parser Path</label>
+        <input type="text" class="parser-path modal-field-input" placeholder="e.g. /parsers/pdf">
       </div>
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <div class="modal-footer-actions">
         <button class="secondary small modal-cancel">Cancel</button>
         <button class="primary small modal-save">Add Parser</button>
       </div>
@@ -2231,34 +2189,19 @@ class AeorFileBrowserBase extends HTMLElement {
     const modal = document.createElement('aeor-modal');
     modal.title = 'CORS Config';
     modal.innerHTML = `
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Origins (comma-separated)</label>
-        <input type="text" class="cors-origins" placeholder="e.g. https://example.com, https://app.example.com" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Origins (comma-separated)</label>
+        <input type="text" class="cors-origins modal-field-input" placeholder="e.g. https://example.com, https://app.example.com">
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Methods (comma-separated)</label>
-        <input type="text" class="cors-methods" value="GET,POST,PUT,DELETE" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Methods (comma-separated)</label>
+        <input type="text" class="cors-methods modal-field-input" value="GET,POST,PUT,DELETE">
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Headers (comma-separated)</label>
-        <input type="text" class="cors-headers" value="Content-Type,Authorization" style="
-          width: 100%; padding: 8px 12px;
-          background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Headers (comma-separated)</label>
+        <input type="text" class="cors-headers modal-field-input" value="Content-Type,Authorization">
       </div>
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <div class="modal-footer-actions">
         <button class="secondary small modal-cancel">Cancel</button>
         <button class="primary small modal-save">Save CORS</button>
       </div>
@@ -2326,22 +2269,11 @@ class AeorFileBrowserBase extends HTMLElement {
     const modal = document.createElement('aeor-modal');
     modal.title = 'New Folder';
     modal.innerHTML = `
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;">Folder Name</label>
-        <input type="text" class="new-folder-name" placeholder="my-folder" style="
-          width: 100%;
-          padding: 8px 12px;
-          background: var(--bg-primary, #0d1117);
-          border: 1px solid var(--border, #30363d);
-          border-radius: var(--radius, 6px);
-          color: var(--text-primary, #e6edf3);
-          font-size: 0.9rem;
-          outline: none;
-          font-family: var(--font-sans);
-          box-sizing: border-box;
-        ">
+      <div class="modal-field-group">
+        <label class="modal-field-label">Folder Name</label>
+        <input type="text" class="new-folder-name modal-field-input" placeholder="my-folder">
       </div>
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <div class="modal-footer-actions">
         <button class="secondary small modal-cancel">Cancel</button>
         <button class="primary small modal-create">Create</button>
       </div>
@@ -2496,7 +2428,7 @@ class AeorFileBrowserBase extends HTMLElement {
           <div class="upload-progress-bar-track">
             <div class="upload-progress-bar-fill" style="width: 0%"></div>
           </div>
-          <div class="upload-progress-meta" style="display:flex;align-items:center;justify-content:space-between;">
+          <div class="upload-progress-meta upload-progress-meta-flex">
             <span class="upload-progress-count"></span>
             <aeor-confirm-button label="Cancel" duration="1000"></aeor-confirm-button>
           </div>
@@ -2695,7 +2627,7 @@ class AeorFileBrowserBase extends HTMLElement {
     modal.title = 'Share';
 
     // Show a loading state while we fetch data
-    modal.innerHTML = '<div style="color: var(--text-secondary, #8b949e);">Loading...</div>';
+    modal.innerHTML = '<div class="share-loading">Loading...</div>';
     document.body.appendChild(modal);
 
     // Fetch users, groups, and current shares in parallel
@@ -2728,13 +2660,6 @@ class AeorFileBrowserBase extends HTMLElement {
     const fileNames = paths.length <= 3
       ? paths.map((p) => p.split('/').pop()).join(', ')
       : `${paths.length} files`;
-    const inputStyle = `
-      width: 100%; padding: 8px 12px;
-      background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
-      border-radius: var(--radius, 6px); color: var(--text-primary, #e6edf3);
-      font-size: 0.9rem; outline: none; font-family: var(--font-sans); box-sizing: border-box;
-    `;
-    const labelStyle = 'display: block; font-size: 0.85rem; color: var(--text-secondary, #8b949e); margin-bottom: 6px;';
 
     // Build user options (API returns { user_id, username })
     // Filter out root (already has access) and the current user (can't share with yourself)
@@ -2772,18 +2697,18 @@ class AeorFileBrowserBase extends HTMLElement {
         const perm = s.allow || s.permissions || '';
         const pattern = s.path_pattern || s.path || '';
         return `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border, #30363d);">
+          <div class="share-entry-row">
             <div>
-              <span style="color:var(--text-primary, #e6edf3);">${escapeHtml(target)}</span>
-              <span style="color:var(--text-secondary, #8b949e);font-size:0.8rem;margin-left:8px;">${escapeHtml(perm)}</span>
+              <span class="share-entry-name">${escapeHtml(target)}</span>
+              <span class="share-entry-perm">${escapeHtml(perm)}</span>
             </div>
             <button class="danger small share-revoke-btn" data-group="${escapeAttr(s.group || '')}" data-pattern="${escapeAttr(pattern)}">&times;</button>
           </div>
         `;
       }).join('');
       sharesHtml = `
-        <div style="margin-top:16px;border-top:1px solid var(--border, #30363d);padding-top:12px;">
-          <div style="${labelStyle}">Current Shares</div>
+        <div class="current-shares-section">
+          <div class="modal-field-label">Current Shares</div>
           ${shareRows}
         </div>
       `;
@@ -2791,80 +2716,80 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Build active share links HTML for Link tab
     const linkSharesHtml = activeLinks.length > 0 ? activeLinks.map((l) => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border, #30363d);">
+      <div class="link-entry-row">
         <div>
-          <span style="color:var(--text-primary, #e6edf3);font-size:0.85rem;">${escapeHtml(l.label || 'Share link')}</span>
-          <span style="color:var(--text-secondary, #8b949e);font-size:0.75rem;margin-left:8px;">${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires'}</span>
+          <span class="link-entry-label">${escapeHtml(l.label || 'Share link')}</span>
+          <span class="link-entry-expires">${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires'}</span>
         </div>
         <button class="danger small link-revoke-btn" data-key-id="${escapeAttr(l.key_id)}">&times;</button>
       </div>
-    `).join('') : '<div style="color:var(--text-secondary, #8b949e);padding:8px 0;font-size:0.85rem;">No active links</div>';
+    `).join('') : '<div class="no-active-links">No active links</div>';
 
     // Populate modal body
     const body = modal.querySelector('.aeor-modal__body');
     body.innerHTML = `
-      <div style="margin-bottom:12px;color:var(--text-secondary, #8b949e);font-size:0.85rem;">
+      <div class="share-file-summary">
         Sharing: ${escapeHtml(fileNames)}${(paths.length > 1) ? ` (${paths.length} items)` : ''}
       </div>
 
-      <div class="tab-bar" style="margin-bottom:16px;">
+      <div class="tab-bar share-tab-bar">
         <div class="tab active share-tab-btn" data-share-tab="people">People</div>
         <div class="tab share-tab-btn" data-share-tab="link">Link</div>
       </div>
 
       <div class="share-tab-people">
-        <div style="margin-bottom:12px;">
-          <label style="${labelStyle}">Users</label>
-          <input type="text" class="share-users-filter" placeholder="Search users..." style="${inputStyle} margin-bottom:4px;">
-          <select class="share-users-select" multiple style="${inputStyle} min-height:80px;">
+        <div class="share-section">
+          <label class="modal-field-label">Users</label>
+          <input type="text" class="share-users-filter modal-field-input share-filter-input" placeholder="Search users...">
+          <select class="share-users-select modal-field-input share-multi-select" multiple>
             ${userOptions}
           </select>
-          <div style="font-size:0.75rem;color:var(--text-secondary, #8b949e);margin-top:4px;">Hold Ctrl/Cmd to select multiple</div>
+          <div class="share-select-hint">Hold Ctrl/Cmd to select multiple</div>
         </div>
 
-        <div style="margin-bottom:12px;">
-          <label style="${labelStyle}">Groups</label>
-          <input type="text" class="share-groups-filter" placeholder="Search groups..." style="${inputStyle} margin-bottom:4px;">
-          <select class="share-groups-select" multiple style="${inputStyle} min-height:80px;">
+        <div class="share-section">
+          <label class="modal-field-label">Groups</label>
+          <input type="text" class="share-groups-filter modal-field-input share-filter-input" placeholder="Search groups...">
+          <select class="share-groups-select modal-field-input share-multi-select" multiple>
             ${groupOptions}
           </select>
         </div>
 
-        <div style="margin-bottom:12px;">
-          <label style="${labelStyle}">Permission Level</label>
-          <select class="share-permission-select" style="${inputStyle}">
+        <div class="share-section">
+          <label class="modal-field-label">Permission Level</label>
+          <select class="share-permission-select modal-field-input">
             <option value=".r..l...">View only</option>
             <option value="crudl...">Can edit</option>
             <option value="crudlify">Full access</option>
             <option value="custom">Custom</option>
           </select>
         </div>
-        <div class="share-custom-flags" style="display:none;margin-bottom:16px;">
+        <div class="share-custom-flags hidden custom-flags-section">
           <aeor-crudlify class="share-crudlify" value="--------"></aeor-crudlify>
         </div>
 
-        <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <div class="modal-footer-actions">
           <button class="secondary small share-cancel">Cancel</button>
           <button class="primary small share-submit">Share</button>
         </div>
       </div>
 
-      <div class="share-tab-link" style="display:none;">
-        <div style="margin-bottom:12px;">
-          <label style="${labelStyle}">Permission Level</label>
-          <select class="link-permission-select" style="${inputStyle}">
+      <div class="share-tab-link hidden">
+        <div class="share-section">
+          <label class="modal-field-label">Permission Level</label>
+          <select class="link-permission-select modal-field-input">
             <option value="-r--l---">View only</option>
             <option value="crudl..." selected>Can edit</option>
             <option value="crudlify">Full access</option>
             <option value="custom">Custom</option>
           </select>
         </div>
-        <div class="link-custom-flags" style="display:none;margin-bottom:12px;">
+        <div class="link-custom-flags hidden share-section">
           <aeor-crudlify class="link-crudlify" value="--------"></aeor-crudlify>
         </div>
-        <div style="margin-bottom:12px;">
-          <label style="${labelStyle}">Expiration</label>
-          <select class="link-expiry-select" style="${inputStyle}">
+        <div class="share-section">
+          <label class="modal-field-label">Expiration</label>
+          <select class="link-expiry-select modal-field-input">
             <option value="">Never</option>
             <option value="1">1 day</option>
             <option value="7">7 days</option>
@@ -2873,14 +2798,14 @@ class AeorFileBrowserBase extends HTMLElement {
             <option value="365">1 year</option>
           </select>
         </div>
-        <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:16px;">
+        <div class="link-create-footer">
           <button class="primary small link-create-btn">Create Link</button>
         </div>
-        <div class="link-result" style="display:none;margin-bottom:16px;">
-          <label style="${labelStyle}">Share URL</label>
-          <div style="display:flex;gap:8px;">
-            <input type="text" class="link-url-input" readonly style="${inputStyle} flex:1;" onfocus="this.select()">
-            <button class="secondary small link-copy-btn" style="min-width:70px;transition:background 0.3s,color 0.3s;">Copy</button>
+        <div class="link-result hidden link-result-section">
+          <label class="modal-field-label">Share URL</label>
+          <div class="link-result-row">
+            <input type="text" class="link-url-input modal-field-input flex-1" readonly onfocus="this.select()">
+            <button class="secondary small link-copy-btn">Copy</button>
           </div>
         </div>
         <div class="link-active-links">${linkSharesHtml}</div>
@@ -2897,8 +2822,8 @@ class AeorFileBrowserBase extends HTMLElement {
         const tab = btn.dataset.shareTab;
         const peopleContent = body.querySelector('.share-tab-people');
         const linkContent = body.querySelector('.share-tab-link');
-        if (peopleContent) peopleContent.style.display = tab === 'people' ? '' : 'none';
-        if (linkContent) linkContent.style.display = tab === 'link' ? '' : 'none';
+        if (peopleContent) peopleContent.classList.toggle('hidden', tab !== 'people');
+        if (linkContent) linkContent.classList.toggle('hidden', tab !== 'link');
       });
     });
 
@@ -2910,14 +2835,14 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Toggle custom flags visibility
     permSelect.addEventListener('change', () => {
-      customFlags.style.display = permSelect.value === 'custom' ? 'block' : 'none';
+      customFlags.classList.toggle('hidden', permSelect.value !== 'custom');
     });
 
     // Search filter for user select
     body.querySelector('.share-users-filter').addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase();
       for (const opt of usersSelect.options) {
-        opt.style.display = opt.text.toLowerCase().includes(q) ? '' : 'none';
+        opt.classList.toggle('hidden', !opt.text.toLowerCase().includes(q));
       }
     });
 
@@ -2925,7 +2850,7 @@ class AeorFileBrowserBase extends HTMLElement {
     body.querySelector('.share-groups-filter').addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase();
       for (const opt of groupsSelect.options) {
-        opt.style.display = opt.text.toLowerCase().includes(q) ? '' : 'none';
+        opt.classList.toggle('hidden', !opt.text.toLowerCase().includes(q));
       }
     });
 
@@ -2994,7 +2919,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const linkCustomFlags = body.querySelector('.link-custom-flags');
     if (linkPermSelect && linkCustomFlags) {
       linkPermSelect.addEventListener('change', () => {
-        linkCustomFlags.style.display = linkPermSelect.value === 'custom' ? 'block' : 'none';
+        linkCustomFlags.classList.toggle('hidden', linkPermSelect.value !== 'custom');
       });
     }
 
@@ -3015,7 +2940,7 @@ class AeorFileBrowserBase extends HTMLElement {
           const result = await this.createShareLink(paths, permLevel, expires);
           const resultDiv = body.querySelector('.link-result');
           const urlInput = body.querySelector('.link-url-input');
-          resultDiv.style.display = '';
+          resultDiv.classList.remove('hidden');
           urlInput.value = result.url;
           if (window.aeorToast) window.aeorToast('Share link created', 'success');
         } catch (error) {
@@ -3110,7 +3035,7 @@ class AeorFileBrowserBase extends HTMLElement {
       ${this._hasPermission('u') ? `<div class="context-menu-item" data-context="cut">Cut <span class="context-menu-hotkey">${mod}+X</span></div>` : ''}
       <div class="context-menu-item" data-context="copy">Copy <span class="context-menu-hotkey">${mod}+C</span></div>
       ${clipboard ? `<div class="context-menu-item" data-context="paste">Paste <span class="context-menu-hotkey">${mod}+V</span></div>` : ''}
-      ${this._hasPermission('d') ? '<hr style="border:none;border-top:1px solid var(--border,#30363d);margin:4px 0;">' : ''}
+      ${this._hasPermission('d') ? '<hr class="context-menu-separator">' : ''}
       ${this._hasPermission('d') ? `<div class="context-menu-item context-menu-danger" data-context="delete-instant">Delete <span class="context-menu-hotkey">Del</span></div>` : ''}
     `;
 
@@ -3284,7 +3209,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     if (container) {
       const panel = container.querySelector('.preview-panel');
-      if (panel) panel.style.display = 'none';
+      if (panel) panel.classList.add('hidden');
     }
     this._fetchListing();
   }
@@ -3338,8 +3263,8 @@ class AeorFileBrowserBase extends HTMLElement {
     const versionsList = panel.querySelector('.preview-versions-list');
     if (!versionsPanel || !versionsList) return;
 
-    versionsPanel.style.display = '';
-    versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">Loading...</div>';
+    versionsPanel.classList.remove('hidden');
+    versionsList.innerHTML = '<div class="text-muted">Loading...</div>';
 
     const isDir = entry.entry_type === ENTRY_TYPE_DIR;
     let versions;
@@ -3362,7 +3287,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     try {
       if (!versions || versions.length === 0) {
-        versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">No snapshots</div>';
+        versionsList.innerHTML = '<div class="text-muted">No snapshots</div>';
         return;
       }
 
@@ -3375,35 +3300,28 @@ class AeorFileBrowserBase extends HTMLElement {
           : v.change_type === 'deleted' ? '\u2212'
           : v.change_type === 'modified' ? '\u2022'
           : '\u2013';
-        const color = v.change_type === 'added' ? 'var(--success,#3fb950)'
-          : v.change_type === 'deleted' ? 'var(--danger,#f85149)'
-          : v.change_type === 'modified' ? 'var(--accent,#f97316)'
-          : 'var(--text-muted,#8b949e)';
+        const colorClass = v.change_type === 'added' ? 'version-change-added'
+          : v.change_type === 'deleted' ? 'version-change-deleted'
+          : v.change_type === 'modified' ? 'version-change-modified'
+          : 'version-change-other';
         const size = v.size ? formatSize(v.size) : '';
         const isCurrent = idx === 0; // newest version = current
-        const selectedStyle = isCurrent
-          ? 'border-color:var(--accent,#f97316);background:rgba(249,115,22,0.08);'
-          : '';
 
         return `
-          <div class="version-entry" data-snapshot-id="${escapeAttr(v.id || v.snapshot)}" data-snapshot-name="${escapeAttr(v.snapshot)}" data-content-hash="${escapeAttr(v.content_hash || '')}" style="
-            padding:6px 8px;margin-bottom:4px;border-radius:4px;cursor:pointer;
-            border:1px solid var(--border,#30363d);transition:border-color 0.15s,background 0.15s;
-            ${selectedStyle}
-          ">
-            <div style="display:flex;align-items:center;justify-content:space-between;">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span style="color:${color};font-weight:700;font-size:1rem;line-height:1;">${icon}</span>
-                <span style="font-size:0.78rem;color:var(--text,#e6edf3);">${escapeHtml(v.snapshot)}</span>
+          <div class="version-entry${isCurrent ? ' current' : ''}" data-snapshot-id="${escapeAttr(v.id || v.snapshot)}" data-snapshot-name="${escapeAttr(v.snapshot)}" data-content-hash="${escapeAttr(v.content_hash || '')}">
+            <div class="version-entry-header">
+              <div class="version-entry-info">
+                <span class="version-change-icon ${colorClass}">${icon}</span>
+                <span class="version-snapshot-name">${escapeHtml(v.snapshot)}</span>
               </div>
               ${!isCurrent && v.change_type !== 'deleted' ? '<aeor-confirm-button class="version-restore-btn" label="Restore" confirmed-text="Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);font-size:0.7rem;"></aeor-confirm-button>' : ''}
-              ${isCurrent ? '<span style="font-size:0.68rem;color:var(--accent,#f97316);">current</span>' : ''}
+              ${isCurrent ? '<span class="version-current-badge">current</span>' : ''}
             </div>
-            <div style="font-size:0.65rem;color:var(--text-muted,#8b949e);margin-top:3px;font-family:var(--font-mono,monospace);user-select:text;word-break:break-all;opacity:0.7;display:flex;align-items:flex-start;gap:4px;">
+            <div class="version-entry-id">
               <span>${escapeHtml(v.id || '')}</span>
-              <span class="copy-id-btn" data-copy-id="${escapeAttr(v.id || '')}" style="cursor:pointer;opacity:0.5;flex-shrink:0;" title="Copy ID">&#128203;</span>
+              <span class="copy-id-btn version-copy-btn" data-copy-id="${escapeAttr(v.id || '')}" title="Copy ID">&#128203;</span>
             </div>
-            <div style="font-size:0.72rem;color:var(--text-muted,#8b949e);margin-top:2px;">
+            <div class="version-entry-meta">
               ${date}${size ? ' \u00B7 ' + size : ''}
             </div>
           </div>`;
@@ -3418,11 +3336,9 @@ class AeorFileBrowserBase extends HTMLElement {
           if (e.target.classList.contains('version-restore-btn')) return;
           // Highlight selected version
           versionsList.querySelectorAll('.version-entry').forEach((v) => {
-            v.style.borderColor = '';
-            v.style.background = '';
+            v.classList.remove('current');
           });
-          el.style.borderColor = 'var(--accent,#f97316)';
-          el.style.background = 'rgba(249,115,22,0.08)';
+          el.classList.add('current');
 
           if (isCurrent && !entry._deleted) {
             // Current version — reload normal preview (no ?version= param)
@@ -3456,7 +3372,7 @@ class AeorFileBrowserBase extends HTMLElement {
         });
       });
     } catch (_) {
-      versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">Unable to load</div>';
+      versionsList.innerHTML = '<div class="text-muted">Unable to load</div>';
     }
   }
 
@@ -3531,20 +3447,20 @@ class AeorFileBrowserBase extends HTMLElement {
     try {
       await this._createSnapshot(name);
       button.textContent = 'Saved!';
-      button.style.background = 'var(--success,#3fb950)';
+      button.classList.add('saved');
       setTimeout(() => {
         button.textContent = original;
-        button.style.background = '';
+        button.classList.remove('saved');
         button.disabled = false;
       }, 1500);
     } catch (error) {
       const msg = error.message || '';
       const isRateLimit = msg.includes('rate limit') || msg.includes('No changes') || msg.includes('Try again');
       button.textContent = isRateLimit ? 'No Changes' : 'Failed';
-      button.style.background = isRateLimit ? 'var(--text-muted,#8b949e)' : 'var(--danger,#f85149)';
+      button.classList.add(isRateLimit ? 'rate-limited' : 'failed');
       setTimeout(() => {
         button.textContent = original;
-        button.style.background = '';
+        button.classList.remove('saved', 'failed', 'rate-limited');
         button.disabled = false;
       }, isRateLimit ? 1500 : 2000);
       if (!isRateLimit && window.aeorToast) window.aeorToast('Snapshot failed: ' + msg, 'error');
@@ -3580,8 +3496,8 @@ class AeorFileBrowserBase extends HTMLElement {
       modal.title = title;
       const bodyText = isHtml ? message : escapeHtml(message);
       modal.innerHTML = `
-        <p style="color: var(--text-primary, #e6edf3); margin: 0 0 20px 0; font-size: 0.95rem;">${bodyText}</p>
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <p class="confirm-modal-text">${bodyText}</p>
+        <div class="modal-footer-actions">
           <button class="secondary small confirm-cancel">Cancel</button>
           <button class="${confirmStyle} small confirm-ok">${escapeHtml(confirmLabel)}</button>
         </div>
