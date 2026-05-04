@@ -12,7 +12,7 @@ import './aeor-info-box.js';
 // File type icon SVGs for grid view thumbnails (non-image files).
 // Each returns an SVG string sized for the grid card icon area.
 const _FILE_ICONS = {
-  folder: '<span style="font-size:42px;">&#128193;</span>',
+  folder: '<span>&#128193;</span>',
   video: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M10 8l6 4-6 4z"/></svg>',
   audio: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   pdf: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="8" y="17" font-size="6" fill="#ef4444" stroke="none" font-weight="bold">PDF</text></svg>',
@@ -356,7 +356,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Render all tab content containers — only the active one is visible
     for (const tab of this._tabs) {
       const isActive = (tab.id === this._active_tab_id);
-      html += `<div class="tab-content" id="tab-content-${tab.id}" style="${isActive ? '' : 'display:none'}">`;
+      html += `<div class="tab-content${isActive ? '' : ' hidden'}" id="tab-content-${tab.id}">`;
       html += `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>`;
       html += this._renderPreviewPanel(tab);
       html += '</div>';
@@ -422,18 +422,18 @@ class AeorFileBrowserBase extends HTMLElement {
     const viewMode    = tab.view_mode || 'list';
     const breadcrumbs = this._renderBreadcrumbs(tab);
     const configActions = this._getConfigActions(tab);
-    const configBar = (configActions) ? `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">${configActions}</div>` : '';
+    const configBar = (configActions) ? `<div class="config-actions-bar">${configActions}</div>` : '';
     const header = `
       <div class="page-header">
         ${breadcrumbs}
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div class="page-header-actions">
           ${configBar}
-          <button class="secondary small header-paste-btn" style="display:none;">Paste</button>
+          <button class="secondary small header-paste-btn hidden">Paste</button>
           <button class="success small snapshot-button">Snapshot</button>
           ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
-          <input type="file" class="upload-input" style="display:none" multiple>` : ''}
+          <input type="file" class="upload-input hidden" multiple>` : ''}
         </div>
       </div>
     `;
@@ -442,16 +442,16 @@ class AeorFileBrowserBase extends HTMLElement {
     const extraActions = this.selectionActions(tab) || '';
     const extraActionsRight = (this.selectionActionsRight ? this.selectionActionsRight(tab) : '') || '';
     const toolbarHtml = `
-      <div class="selection-bar" style="display:flex;align-items:center;gap:8px;">
-        <div class="selection-actions-left" style="display:flex;align-items:center;gap:8px;visibility:hidden;">
-          <span class="selection-count" style="font-weight:600;white-space:nowrap;"></span>
+      <div class="selection-bar">
+        <div class="selection-actions-left" style="visibility:hidden;">
+          <span class="selection-count"></span>
           ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
           ${extraActionsRight}
-          <button class="primary small selection-restore" style="display:none;">Restore Selected</button>
+          <button class="primary small selection-restore hidden">Restore Selected</button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-left:auto;">
+        <div class="toolbar-right">
           <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
           <div class="view-toggle">
             <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
@@ -498,21 +498,21 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _renderPreviewPanel(tab) {
     return `
-      <div class="preview-panel" translate="no" style="display:none; ${tab.preview_height ? 'height:' + tab.preview_height + 'px' : ''}">
+      <div class="preview-panel hidden" translate="no"${tab.preview_height ? ` style="height:${tab.preview_height}px"` : ''}>
         <div class="preview-resize-handle"></div>
         <div class="preview-header">
           <input type="text" class="preview-title" spellcheck="false">
           <div class="preview-actions"></div>
         </div>
-        <div style="display:flex;gap:0;flex:1;overflow:hidden;">
-          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <div class="preview-inner">
+          <div class="preview-main">
             <div class="preview-content"></div>
             <div class="preview-meta"></div>
-            <div class="preview-warning" style="display:none;"></div>
+            <div class="preview-warning hidden"></div>
           </div>
-          <div class="preview-versions" translate="no" style="width:220px;border-left:1px solid var(--border,#30363d);overflow-y:auto;padding:10px;flex-shrink:0;display:none;">
-            <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted,#8b949e);margin-bottom:8px;">Version History</div>
-            <div class="preview-versions-list" style="font-size:0.82rem;"></div>
+          <div class="preview-versions hidden" translate="no">
+            <div class="preview-versions-heading">Version History</div>
+            <div class="preview-versions-list"></div>
           </div>
         </div>
       </div>`;

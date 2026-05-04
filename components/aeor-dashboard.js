@@ -139,24 +139,14 @@ export class AeorDashboard extends HTMLElement {
       <div class="page-header">
         <h1 class="page-title">Dashboard</h1>
       </div>
-      <div id="identity-bar" style="
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 12px 18px;
-        margin-bottom: 18px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 24px;
-        font-size: 0.85rem;
-      ">
-        <div><span style="color:var(--text-muted);">Version</span> <span id="identity-version" style="color:var(--text);font-family:var(--font-mono);margin-left:6px;">&mdash;</span></div>
-        <div><span style="color:var(--text-muted);">Database</span> <span id="identity-database-path" style="color:var(--text);font-family:var(--font-mono);margin-left:6px;">&mdash;</span></div>
-        <div><span style="color:var(--text-muted);">Uptime</span> <span id="identity-uptime" style="color:var(--text);font-family:var(--font-mono);margin-left:6px;">&mdash;</span></div>
-        <div><span style="color:var(--text-muted);">Hash</span> <span id="identity-hash-algorithm" style="color:var(--text);font-family:var(--font-mono);margin-left:6px;">&mdash;</span></div>
+      <div id="identity-bar" class="identity-bar">
+        <div><span class="identity-label">Version</span> <span id="identity-version" class="identity-value">&mdash;</span></div>
+        <div><span class="identity-label">Database</span> <span id="identity-database-path" class="identity-value">&mdash;</span></div>
+        <div><span class="identity-label">Uptime</span> <span id="identity-uptime" class="identity-value">&mdash;</span></div>
+        <div><span class="identity-label">Hash</span> <span id="identity-hash-algorithm" class="identity-value">&mdash;</span></div>
       </div>
       <div id="dashboard-error"></div>
-      <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Counts</div>
+      <div class="section-heading">Counts</div>
       <div class="stats-grid" id="stats-counts">
         ${COUNT_DEFINITIONS.map((definition) => `
           <div class="stat-card">
@@ -165,7 +155,7 @@ export class AeorDashboard extends HTMLElement {
           </div>
         `).join('')}
       </div>
-      <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Sizes</div>
+      <div class="section-heading">Sizes</div>
       <div class="stats-grid" id="stats-sizes">
         ${SIZE_DEFINITIONS.map((definition) => `
           <div class="stat-card">
@@ -174,7 +164,7 @@ export class AeorDashboard extends HTMLElement {
           </div>
         `).join('')}
       </div>
-      <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Throughput</div>
+      <div class="section-heading">Throughput</div>
       <div class="stats-grid" id="stats-throughput">
         <div class="stat-card">
           <div class="stat-label">Writes / sec (1m)</div>
@@ -193,17 +183,17 @@ export class AeorDashboard extends HTMLElement {
           <div class="stat-value" id="stat-bytes-read-per-sec">&mdash;</div>
         </div>
       </div>
-      <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Health</div>
+      <div class="section-heading">Health</div>
       <div class="stats-grid" id="stats-health">
         <div class="stat-card">
           <div class="stat-label">Disk Usage</div>
-          <div id="health-disk-usage" style="margin-top:8px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px;">
-              <span style="color:var(--text-muted);">Usage</span>
-              <span style="color:var(--text);font-family:var(--font-mono);" id="health-disk-usage-value">&mdash;</span>
+          <div id="health-disk-usage" class="health-disk-usage">
+            <div class="health-disk-row">
+              <span class="health-disk-label">Usage</span>
+              <span class="health-disk-value" id="health-disk-usage-value">&mdash;</span>
             </div>
-            <div style="background:#161b22;border-radius:4px;height:20px;overflow:hidden;">
-              <div id="health-disk-usage-bar" style="background:var(--success);height:100%;width:0%;border-radius:4px;transition:width 0.4s ease,background 0.4s ease;"></div>
+            <div class="progress-track">
+              <div id="health-disk-usage-bar" class="progress-fill"></div>
             </div>
           </div>
         </div>
@@ -231,8 +221,8 @@ export class AeorDashboard extends HTMLElement {
           <div class="chart-title">Storage Overview</div>
           <div class="chart-container" id="chart-storage"></div>
         </div>
-        <div class="chart-card" style="display:flex;align-items:center;justify-content:center;">
-          <div style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:20px;">Additional charts coming soon</div>
+        <div class="chart-card chart-card-placeholder">
+          <div class="chart-placeholder-text">Additional charts coming soon</div>
         </div>
       </div>
     `;
@@ -357,13 +347,13 @@ export class AeorDashboard extends HTMLElement {
       if (percent != null) {
         diskUsageBar.style.width = Math.min(percent, 100) + '%';
 
-        // Color based on usage level
+        // Color based on usage level via CSS data-level attribute
         if (percent >= 90) {
-          diskUsageBar.style.background = 'var(--danger)';
+          diskUsageBar.dataset.level = 'danger';
         } else if (percent >= 75) {
-          diskUsageBar.style.background = 'var(--accent)';
+          diskUsageBar.dataset.level = 'warning';
         } else {
-          diskUsageBar.style.background = 'var(--success)';
+          delete diskUsageBar.dataset.level;
         }
       }
     }
@@ -399,23 +389,21 @@ export class AeorDashboard extends HTMLElement {
 
   renderBarChart(container, labels, values) {
     const maxValue = Math.max(...values, 1);
-    const barHeight = 32;
-    const gap = 10;
 
-    let html = '<div style="padding:8px 0;">';
+    let html = '<div class="bar-chart">';
 
     for (let index = 0; index < labels.length; index++) {
       const percentage = (values[index] / maxValue) * 100;
       const color = CHART_COLORS[index % CHART_COLORS.length];
 
       html += `
-        <div style="margin-bottom:${gap}px;">
-          <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px;">
-            <span style="color:#8b949e;">${labels[index]}</span>
-            <span style="color:#e6edf3;font-family:var(--font-mono);">${formatNumber(values[index])}</span>
+        <div class="bar-chart-row">
+          <div class="bar-chart-header">
+            <span class="bar-chart-label">${labels[index]}</span>
+            <span class="bar-chart-value">${formatNumber(values[index])}</span>
           </div>
-          <div style="background:#161b22;border-radius:4px;height:${barHeight}px;overflow:hidden;">
-            <div style="background:${color};height:100%;width:${Math.max(percentage, 1)}%;border-radius:4px;transition:width 0.4s ease;"></div>
+          <div class="bar-track">
+            <div class="bar-fill" style="background:${color};width:${Math.max(percentage, 1)}%;"></div>
           </div>
         </div>
       `;
@@ -446,7 +434,7 @@ export class AeorDashboard extends HTMLElement {
 
   updateActivityChart() {
     const history = this._activityHistory;
-    const waiting = '<div style="color:#8b949e;font-size:0.85rem;padding:20px;text-align:center;">Collecting data...</div>';
+    const waiting = '<div class="chart-waiting">Collecting data...</div>';
 
     const opsContainer = this.querySelector('#chart-activity');
     if (opsContainer) {
@@ -536,9 +524,9 @@ export class AeorDashboard extends HTMLElement {
       hitAreas += `<rect x="${x - halfGap}" y="${paddingTop}" width="${halfGap * 2}" height="${chartHeight}" fill="transparent" data-idx="${i}"/>`;
     }
 
-    container.style.position = 'relative';
+    container.classList.add('chart-container-relative');
     container.innerHTML = `
-      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:block;">
+      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="chart-svg">
         ${yLabels}
         ${timeLabels.join('')}
         ${legend}
@@ -547,13 +535,7 @@ export class AeorDashboard extends HTMLElement {
         ${hoverElements}
         ${hitAreas}
       </svg>
-      <div id="${hoverId}-tooltip" style="
-        display:none; position:absolute; pointer-events:none;
-        background:var(--card); border:1px solid var(--border); border-radius:6px;
-        padding:8px 12px; font-size:0.78rem; font-family:var(--font-mono);
-        color:var(--text); box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:10;
-        white-space:nowrap;
-      "></div>
+      <div id="${hoverId}-tooltip" class="chart-tooltip"></div>
     `;
 
     // Wire hover events
@@ -594,9 +576,9 @@ export class AeorDashboard extends HTMLElement {
       const time = new Date(p.timestamp);
       const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
       tooltip.innerHTML = `
-        <div style="color:var(--text-muted);margin-bottom:4px;">${timeStr}</div>
-        <div><span style="color:#f0883e;">\u25CF</span> ${orangeLabel}: <strong>${formatter(oyVal)}</strong></div>
-        <div><span style="color:#3fb950;">\u25CF</span> ${greenLabel}: <strong>${formatter(gyVal)}</strong></div>
+        <div class="tooltip-time">${timeStr}</div>
+        <div><span class="tooltip-dot-orange">\u25CF</span> ${orangeLabel}: <strong>${formatter(oyVal)}</strong></div>
+        <div><span class="tooltip-dot-green">\u25CF</span> ${greenLabel}: <strong>${formatter(gyVal)}</strong></div>
       `;
       tooltip.style.display = 'block';
 
