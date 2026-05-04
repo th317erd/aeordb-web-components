@@ -57,58 +57,13 @@ export class AeorModal extends HTMLElement {
     const contentHTML = this.innerHTML;
 
     this.innerHTML = `
-      <div class="aeor-modal__overlay" style="
-        position: fixed;
-        inset: 0;
-        z-index: 1000;
-        background: rgba(0, 0, 0, 0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        animation: aeor-modal-fade-in 0.15s ease;
-      ">
-        <div class="aeor-modal__dialog" style="
-          background: var(--card, #161b22);
-          border: 1px solid var(--border, #30363d);
-          border-radius: 12px;
-          min-width: 360px;
-          max-width: 560px;
-          width: 100%;
-          max-height: 85vh;
-          overflow-x: hidden;
-          overflow-y: auto;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-          animation: aeor-modal-scale-in 0.15s ease;
-        ">
-          <div class="aeor-modal__header" style="
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border, #30363d);
-          ">
-            <div class="aeor-modal__title" style="
-              font-size: 1.1rem;
-              font-weight: 600;
-              color: var(--text, #e6edf3);
-            ">${this._escapeHtml(this._title)}</div>
-            <button class="aeor-modal__close-btn" style="
-              background: none;
-              border: none;
-              color: var(--text-muted, #8b949e);
-              cursor: pointer;
-              font-size: 1.25rem;
-              line-height: 1;
-              padding: 4px 8px;
-              border-radius: 4px;
-              transition: color 0.15s ease, background 0.15s ease;
-            " aria-label="Close">&times;</button>
+      <div class="aeor-modal__overlay">
+        <div class="aeor-modal__dialog">
+          <div class="aeor-modal__header">
+            <div class="aeor-modal__title">${this._escapeHtml(this._title)}</div>
+            <button class="aeor-modal__close-btn" aria-label="Close">&times;</button>
           </div>
-          <div class="aeor-modal__body" style="
-            padding: 20px;
-            overflow-wrap: break-word;
-            word-break: break-word;
-          ">${contentHTML}</div>
+          <div class="aeor-modal__body">${contentHTML}</div>
         </div>
       </div>
     `;
@@ -134,27 +89,6 @@ export class AeorModal extends HTMLElement {
         if (first) first.focus();
       }
     });
-
-    // Inject keyframe animations if not already present
-    if (!document.getElementById('aeor-modal-styles')) {
-      const style = document.createElement('style');
-      style.id = 'aeor-modal-styles';
-      style.textContent = `
-        @keyframes aeor-modal-fade-in {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
-        @keyframes aeor-modal-scale-in {
-          from { transform: scale(0.95); opacity: 0; }
-          to   { transform: scale(1); opacity: 1; }
-        }
-        .aeor-modal__close-btn:hover {
-          color: var(--text, #e6edf3) !important;
-          background: var(--border, #30363d) !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
   }
 
   _onKeyDown(event) {
