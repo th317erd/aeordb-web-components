@@ -1,6 +1,7 @@
 'use strict';
 
 import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
+import { ENTRY_TYPE_DIR } from './aeor-file-view-shared.js';
 
 export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   connectedCallback() {
@@ -242,6 +243,10 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
       const err = await response.json().catch(() => ({ error: 'Unknown error' }));
       throw new Error(err.error || `HTTP ${response.status}`);
     }
+    const data = await response.json().catch(() => ({}));
+    if (data.duplicate) {
+      throw new Error('No changes');
+    }
   }
 
   async _restoreFromSnapshot(filePath, snapshotId) {
@@ -325,6 +330,25 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (!response.ok) throw new Error(`${response.status}`);
   }
 
+  async _fetchSnapshotList() {
+    const response = await window.api('/versions/snapshots');
+    if (!response.ok) return [];
+    const data = await response.json();
+    const items = data.items || [];
+    // Map to the same shape as version history entries (newest first)
+    return items
+      .sort((a, b) => b.created_at - a.created_at)
+      .map((s, idx) => ({
+        snapshot: s.name,
+        id: s.id,
+        timestamp: s.created_at,
+        change_type: idx === 0 ? 'added' : 'modified',
+        size: null,
+        content_type: null,
+        content_hash: s.root_hash,
+      }));
+  }
+
   // ---------------------------------------------------------------------------
   // Hook overrides
   // ---------------------------------------------------------------------------
@@ -338,7 +362,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
    * returns a ?token= URL so the browser uses range requests — no full download.
    * For everything else, fetches with auth and returns a blob URL.
    */
-  async getPreviewSrc(path, contentType) {
+  async getPreviewSrc(path, contentType, skipRevoke) {
     // Streamable media: use ?token= URL for browser range requests
     const ct = (contentType || '').toLowerCase();
     if (ct.startsWith('video/') || ct.startsWith('audio/')) {
@@ -352,9 +376,10 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         return this.fileUrl(path);
 
       const blob = await response.blob();
-      if (this._lastPreviewBlobUrl) URL.revokeObjectURL(this._lastPreviewBlobUrl);
+      // Only revoke previous blob for single-file preview, not grid thumbnails
+      if (!skipRevoke && this._lastPreviewBlobUrl) URL.revokeObjectURL(this._lastPreviewBlobUrl);
       const url = URL.createObjectURL(blob);
-      this._lastPreviewBlobUrl = url;
+      if (!skipRevoke) this._lastPreviewBlobUrl = url;
       return url;
     } catch (error) {
       return this.fileUrl(path);
@@ -368,12 +393,17 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     `;
   }
 
+  directoryPreviewActions(entry) {
+    return `
+      <button class="primary small" data-action="download-zip">Download ZIP</button>
+      ${this._hasPermission('y', entry) ? '<button class="secondary small" data-action="share">Share</button>' : ''}
+    `;
+  }
+
   selectionActions(tab) {
-    const clipboard = this._getClipboard();
     return `
       <button class="secondary small selection-cut">Cut</button>
       <button class="secondary small selection-copy">Copy</button>
-      ${clipboard ? '<button class="secondary small selection-paste">Paste</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }
@@ -409,10 +439,6 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         if (window.aeorToast) window.aeorToast('Files copied!', 'success');
       });
     }
-    const pasteBtn = selectionBar.querySelector('.selection-paste');
-    if (pasteBtn) {
-      pasteBtn.addEventListener('click', () => this._pasteClipboard());
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -443,7 +469,9 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (action === 'share') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
-      const filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
+      let filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
+      // Directories need trailing slash for wildcard glob in share
+      if (tab.preview_entry.entry_type === ENTRY_TYPE_DIR) filePath += '/';
       this._showShareModal([filePath]);
       return;
     }

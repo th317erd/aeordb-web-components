@@ -12,7 +12,7 @@ import './aeor-info-box.js';
 // File type icon SVGs for grid view thumbnails (non-image files).
 // Each returns an SVG string sized for the grid card icon area.
 const _FILE_ICONS = {
-  folder: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+  folder: '<span style="font-size:42px;">&#128193;</span>',
   video: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M10 8l6 4-6 4z"/></svg>',
   audio: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   pdf: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="8" y="17" font-size="6" fill="#ef4444" stroke="none" font-weight="bold">PDF</text></svg>',
@@ -428,6 +428,7 @@ class AeorFileBrowserBase extends HTMLElement {
         ${breadcrumbs}
         <div style="display: flex; gap: 8px; align-items: center;">
           ${configBar}
+          <button class="secondary small header-paste-btn" style="display:none;">Paste</button>
           <button class="success small snapshot-button">Snapshot</button>
           ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
@@ -466,8 +467,8 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderListingContent(tab, viewMode) {
     viewMode = viewMode || tab.view_mode || 'list';
 
-    if (tab.loading) {
-      return '';
+    if (tab.loading && tab.entries.length === 0) {
+      return '<div class="empty-state">&nbsp;</div>';
     }
 
     const visible = this._getVisibleEntries(tab);
@@ -603,22 +604,36 @@ class AeorFileBrowserBase extends HTMLElement {
   _loadGridThumbnails(container) {
     if (!container || typeof this.getPreviewSrc !== 'function') return;
     const tab = this._activeTab();
-    if (tab) tab._gridBlobUrls = tab._gridBlobUrls || [];
+    if (!tab) return;
+    tab._gridBlobUrls = tab._gridBlobUrls || [];
+    // Cache blob URLs by path so re-renders reuse them instantly
+    tab._thumbCache = tab._thumbCache || {};
+
     const thumbs = container.querySelectorAll('.grid-card-thumbnail[data-thumb-path]');
     for (const el of thumbs) {
       const path = el.dataset.thumbPath;
       const type = el.dataset.thumbType || 'image';
       if (!path) continue;
+      if (el.querySelector('img')) continue;
+
+      // Use cached blob URL if available (survives re-renders)
+      if (tab._thumbCache[path]) {
+        el.innerHTML = `<img src="${escapeAttr(tab._thumbCache[path])}" alt="" loading="lazy">`;
+        continue;
+      }
 
       if (type === 'video') {
         this._loadVideoThumbnail(el, path);
       } else {
-        this.getPreviewSrc(path, 'image/*').then((blobUrl) => {
-          if (tab) tab._gridBlobUrls.push(blobUrl);
-          el.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
-        }).catch(() => {
-          el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.file}</div>`;
-        });
+        this.getPreviewSrc(path, 'image/*', true).then((blobUrl) => {
+          tab._thumbCache[path] = blobUrl;
+          tab._gridBlobUrls.push(blobUrl);
+          // Re-query the element in the current DOM (original may be gone)
+          const current = container.querySelector(`.grid-card-thumbnail[data-thumb-path="${CSS.escape(path)}"]`);
+          if (current && !current.querySelector('img')) {
+            current.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
+          }
+        }).catch(() => {});
       }
     }
   }
@@ -721,6 +736,7 @@ class AeorFileBrowserBase extends HTMLElement {
             ${breadcrumbs}
             <div style="display: flex; gap: 8px; align-items: center;">
               ${configBar}
+              <button class="secondary small header-paste-btn" style="display:none;">Paste</button>
               <button class="success small snapshot-button">Snapshot</button>
               ${this._hasPermission('c') ? `
               <button class="secondary small new-folder-button">New Folder</button>
@@ -733,6 +749,10 @@ class AeorFileBrowserBase extends HTMLElement {
       // Update listing content only (toolbar is preserved)
       if (listing) {
         listing.innerHTML = this._renderListingContent(tab);
+        // Clear any loading state styles (dimming/cursor from _fetchListing)
+        listing.style.opacity = '';
+        listing.style.pointerEvents = '';
+        listing.style.cursor = '';
       }
 
       // Re-bind events for the listing rows + header buttons (but toolbar stays intact)
@@ -997,22 +1017,41 @@ class AeorFileBrowserBase extends HTMLElement {
     const entry = tab.preview_entry;
     if (!entry) { panel.style.display = 'none'; return; }
 
+    // Editable folder name
     const titleInput = panel.querySelector('.preview-title');
     titleInput.value = entry.name;
-    titleInput.readOnly = true;
-    titleInput.style.pointerEvents = 'none';
+    titleInput.dataset.original = entry.name;
+    const canRename = this._hasPermission('u', entry);
+    titleInput.readOnly = !canRename;
+    titleInput.tabIndex = canRename ? 0 : -1;
+    titleInput.style.pointerEvents = canRename ? '' : 'none';
 
-    panel.querySelector('.preview-actions').innerHTML =
-      `<button class="secondary small" data-action="close-preview">\u2715</button>`;
+    // Action buttons — Delete, Download ZIP, Share, Close
+    const dirActions = this.directoryPreviewActions(entry) || '';
+    panel.querySelector('.preview-actions').innerHTML = `
+      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+      ${dirActions}
+      <button class="secondary small" data-action="close-preview">\u2715</button>
+    `;
 
     panel.querySelector('.preview-content').innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted,#8b949e);font-size:2rem;">&#128193;</div>';
+      '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:5rem;">&#128193;</div>';
 
     panel.querySelector('.preview-meta').textContent =
       `Directory \u00B7 ${formatDate(entry.created_at)}`;
 
+    // Version history
     this._loadVersionHistory(panel, tab, entry);
 
+    // Bind delete long-press
+    const previewDelBtn = panel.querySelector('.preview-delete-btn');
+    if (previewDelBtn) {
+      previewDelBtn.addEventListener('confirm', () => {
+        this._handlePreviewAction('delete');
+      });
+    }
+
+    // Bind action buttons
     panel.querySelectorAll('[data-action]').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -1020,7 +1059,28 @@ class AeorFileBrowserBase extends HTMLElement {
       });
     });
 
+    // Bind rename on Enter/blur (same as file preview)
+    const self = this;
+    titleInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); titleInput.blur(); }
+      else if (event.key === 'Escape') { titleInput.value = titleInput.dataset.original; titleInput.blur(); }
+    });
+    titleInput.addEventListener('blur', () => {
+      const newName = titleInput.value.trim();
+      const oldName = titleInput.dataset.original;
+      if (newName && newName !== oldName) {
+        self._renamePreviewFile(newName);
+      }
+    });
+
     panel.style.display = '';
+  }
+
+  /**
+   * Extra action buttons for directory preview. Override in subclasses.
+   */
+  directoryPreviewActions(entry) {
+    return '';
   }
 
   // -------------------------------------------------------------------------
@@ -1103,6 +1163,11 @@ class AeorFileBrowserBase extends HTMLElement {
     container.querySelectorAll('[data-view]').forEach((btn) => {
       btn.addEventListener('click', () => {
         tab.view_mode = btn.dataset.view;
+        // Update button highlight (toolbar is preserved, not rebuilt)
+        container.querySelectorAll('[data-view]').forEach((b) => {
+          b.classList.toggle('primary', b.dataset.view === tab.view_mode);
+          b.classList.toggle('secondary', b.dataset.view !== tab.view_mode);
+        });
         this._saveState();
         this._updateTabContent(tabId);
       });
@@ -1110,6 +1175,23 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _bindListingEvents(container, tab, tabId) {
+    // Background right-click anywhere in the tab content (not on a file entry)
+    // Prevents default context menu and shows paste menu when clipboard has items
+    container.addEventListener('contextmenu', (event) => {
+      if (event.target.closest('.file-entry')) return;
+      // Don't intercept context menu on inputs, textareas, or preview panel controls
+      if (event.target.closest('input, textarea, select, .preview-panel button')) return;
+      event.preventDefault();
+      this._showBackgroundContextMenu(event.clientX, event.clientY);
+    });
+
+    // Header paste button (rebuilt with header, so bind each time)
+    const headerPasteBtn = container.querySelector('.header-paste-btn');
+    if (headerPasteBtn) {
+      headerPasteBtn.style.display = this._getClipboard() ? '' : 'none';
+      headerPasteBtn.addEventListener('click', () => this._pasteClipboard());
+    }
+
     // Sortable column headers
     container.querySelectorAll('th[data-sort]').forEach((th) => {
       th.addEventListener('click', () => {
@@ -1494,13 +1576,15 @@ class AeorFileBrowserBase extends HTMLElement {
           restoreBtn.style.display = hasDeletedSelected ? '' : 'none';
         }
 
-        const pasteBtn = leftSlot.querySelector('.selection-paste');
-        if (pasteBtn) {
-          pasteBtn.style.display = this._getClipboard() ? '' : 'none';
-        }
       } else {
         leftSlot.style.visibility = 'hidden';
       }
+    }
+
+    // Header paste button — always visible when clipboard has items
+    const headerPasteBtn = container.querySelector('.header-paste-btn');
+    if (headerPasteBtn) {
+      headerPasteBtn.style.display = this._getClipboard() ? '' : 'none';
     }
   }
 
@@ -1666,14 +1750,17 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.total = null;
     tab.loading_more = false;
     tab.loading = true;
-    // Non-destructive loading: dim existing content instead of replacing with "Loading..."
+    // Non-destructive loading: dim existing content instead of wiping it
     const container = this.querySelector(`#tab-content-${tab.id}`);
     const listingArea = container && container.querySelector('.tab-listing-area');
     const listing = listingArea && listingArea.querySelector('.tab-listing');
-    if (listing) {
+    if (listing && listing.children.length > 0) {
       listing.style.opacity = '0.5';
       listing.style.pointerEvents = 'none';
       listing.style.cursor = 'wait';
+    } else {
+      // No existing content to dim — ensure the DOM structure exists
+      this._updateTabContent(tab.id);
     }
 
     try {
@@ -2638,7 +2725,9 @@ class AeorFileBrowserBase extends HTMLElement {
       activeLinks = linksData.links || [];
     } catch (e) { /* non-critical */ }
 
-    const fileNames = paths.map((p) => p.split('/').pop()).join(', ');
+    const fileNames = paths.length <= 3
+      ? paths.map((p) => p.split('/').pop()).join(', ')
+      : `${paths.length} files`;
     const inputStyle = `
       width: 100%; padding: 8px 12px;
       background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #30363d);
@@ -2963,6 +3052,45 @@ class AeorFileBrowserBase extends HTMLElement {
     });
   }
 
+  _showBackgroundContextMenu(x, y) {
+    const existing = this.querySelector('.context-menu');
+    if (existing) existing.remove();
+
+    const clipboard = this._getClipboard();
+    if (!clipboard) return; // Nothing to paste — no menu needed
+
+    const isMac = navigator.platform.includes('Mac');
+    const mod = isMac ? 'Cmd' : 'Ctrl';
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.innerHTML = `
+      <div class="context-menu-item" data-context="paste">Paste <span class="context-menu-hotkey">${mod}+V</span></div>
+    `;
+    this.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (x - rect.width) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (y - rect.height) + 'px';
+
+    menu.querySelectorAll('.context-menu-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        menu.remove();
+        if (item.dataset.context === 'paste') this._pasteClipboard();
+      });
+    });
+
+    const closeMenu = (event) => {
+      if (!menu.contains(event.target)) {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
   _showContextMenu(x, y, entry) {
     const existing = this.querySelector('.context-menu');
     if (existing) existing.remove();
@@ -3210,18 +3338,29 @@ class AeorFileBrowserBase extends HTMLElement {
     const versionsList = panel.querySelector('.preview-versions-list');
     if (!versionsPanel || !versionsList) return;
 
-    const isDir = entry.entry_type === ENTRY_TYPE_DIR;
-    if (isDir) {
-      versionsPanel.style.display = 'none';
-      return;
-    }
-
     versionsPanel.style.display = '';
     versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">Loading...</div>';
 
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const isDir = entry.entry_type === ENTRY_TYPE_DIR;
+    let versions;
+
+    if (isDir) {
+      // Directories: show all snapshots (no per-file resolution)
+      try {
+        versions = await this._fetchSnapshotList();
+      } catch (_) {
+        versions = [];
+      }
+    } else {
+      const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+      try {
+        versions = await this._fetchVersionHistory(filePath);
+      } catch (_) {
+        versions = [];
+      }
+    }
+
     try {
-      const versions = await this._fetchVersionHistory(filePath);
       if (!versions || versions.length === 0) {
         versionsList.innerHTML = '<div style="color:var(--text-muted,#8b949e);">No snapshots</div>';
         return;
@@ -3395,17 +3534,20 @@ class AeorFileBrowserBase extends HTMLElement {
       button.style.background = 'var(--success,#3fb950)';
       setTimeout(() => {
         button.textContent = original;
+        button.style.background = '';
         button.disabled = false;
       }, 1500);
     } catch (error) {
-      button.textContent = 'Failed';
-      button.style.background = 'var(--danger,#f85149)';
+      const msg = error.message || '';
+      const isRateLimit = msg.includes('rate limit') || msg.includes('No changes') || msg.includes('Try again');
+      button.textContent = isRateLimit ? 'No Changes' : 'Failed';
+      button.style.background = isRateLimit ? 'var(--text-muted,#8b949e)' : 'var(--danger,#f85149)';
       setTimeout(() => {
         button.textContent = original;
-        button.style.background = 'var(--success,#3fb950)';
+        button.style.background = '';
         button.disabled = false;
-      }, 2000);
-      if (window.aeorToast) window.aeorToast('Snapshot failed: ' + error.message, 'error');
+      }, isRateLimit ? 1500 : 2000);
+      if (!isRateLimit && window.aeorToast) window.aeorToast('Snapshot failed: ' + msg, 'error');
     }
   }
 
@@ -3421,6 +3563,10 @@ class AeorFileBrowserBase extends HTMLElement {
    * Should return an array of { snapshot, timestamp, change_type, size }.
    */
   async _fetchVersionHistory(filePath) {
+    return [];
+  }
+
+  async _fetchSnapshotList() {
     return [];
   }
 

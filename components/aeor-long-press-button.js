@@ -201,7 +201,10 @@ export class AeorLongPressButton extends HTMLElement {
     if (this._btn) {
       this._btn.style.borderColor = '';
       const label = this.querySelector('.lpb-label');
-      if (label) label.style.color = '';
+      if (label) {
+        label.style.color = '';
+        label.textContent = this.label; // Restore original label text
+      }
       // Restore original background with a smooth transition
       this._btn.style.transition = 'background-color 0.2s ease-out';
       this._btn.style.backgroundColor = this._originalBg || '';
