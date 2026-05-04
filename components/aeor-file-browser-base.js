@@ -6,7 +6,7 @@ import {
   flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 import './aeor-modal.js';
-import './aeor-long-press-button.js';
+import './aeor-confirm-button.js';
 import './aeor-info-box.js';
 
 // File type icon SVGs for grid view thumbnails (non-image files).
@@ -445,7 +445,7 @@ class AeorFileBrowserBase extends HTMLElement {
       <div class="selection-bar" style="display:flex;align-items:center;gap:8px;">
         <div class="selection-actions-left" style="display:flex;align-items:center;gap:8px;visibility:hidden;">
           <span class="selection-count" style="font-weight:600;white-space:nowrap;"></span>
-          ${this._hasPermission('d') ? '<aeor-long-press-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+          ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
           ${extraActionsRight}
@@ -812,7 +812,7 @@ class AeorFileBrowserBase extends HTMLElement {
         panel.querySelector('.preview-actions').innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;">
             <aeor-info-box compact>Any version can be safely restored.</aeor-info-box>
-            <aeor-long-press-button class="restore-snapshot-btn" label="Restore Selected Snapshot" confirmed-text="File Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);"></aeor-long-press-button>
+            <aeor-confirm-button class="restore-snapshot-btn" label="Restore Selected Snapshot" confirmed-text="File Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);"></aeor-confirm-button>
             <button class="secondary small" data-action="close-preview">\u2715</button>
           </div>
         `;
@@ -917,7 +917,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Update action buttons — subclasses can inject extra buttons via previewActions()
     const extraActions = this.previewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
-      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+      ${this._hasPermission('d', entry) ? '<aeor-confirm-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
       ${extraActions}
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
@@ -1029,7 +1029,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Action buttons — Delete, Download ZIP, Share, Close
     const dirActions = this.directoryPreviewActions(entry) || '';
     panel.querySelector('.preview-actions').innerHTML = `
-      ${this._hasPermission('d', entry) ? '<aeor-long-press-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-long-press-button>' : ''}
+      ${this._hasPermission('d', entry) ? '<aeor-confirm-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
       ${dirActions}
       <button class="secondary small" data-action="close-preview">\u2715</button>
     `;
@@ -2498,10 +2498,10 @@ class AeorFileBrowserBase extends HTMLElement {
           </div>
           <div class="upload-progress-meta" style="display:flex;align-items:center;justify-content:space-between;">
             <span class="upload-progress-count"></span>
-            <aeor-long-press-button label="Cancel" duration="1000"></aeor-long-press-button>
+            <aeor-confirm-button label="Cancel" duration="1000"></aeor-confirm-button>
           </div>
         `;
-        const cancelBtn = progressPanel.querySelector('aeor-long-press-button');
+        const cancelBtn = progressPanel.querySelector('aeor-confirm-button');
         if (cancelBtn) cancelBtn.addEventListener('confirm', () => { cancelled = true; });
       }
 
@@ -3396,7 +3396,7 @@ class AeorFileBrowserBase extends HTMLElement {
                 <span style="color:${color};font-weight:700;font-size:1rem;line-height:1;">${icon}</span>
                 <span style="font-size:0.78rem;color:var(--text,#e6edf3);">${escapeHtml(v.snapshot)}</span>
               </div>
-              ${!isCurrent && v.change_type !== 'deleted' ? '<aeor-long-press-button class="version-restore-btn" label="Restore" confirmed-text="Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);font-size:0.7rem;"></aeor-long-press-button>' : ''}
+              ${!isCurrent && v.change_type !== 'deleted' ? '<aeor-confirm-button class="version-restore-btn" label="Restore" confirmed-text="Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);font-size:0.7rem;"></aeor-confirm-button>' : ''}
               ${isCurrent ? '<span style="font-size:0.68rem;color:var(--accent,#f97316);">current</span>' : ''}
             </div>
             <div style="font-size:0.65rem;color:var(--text-muted,#8b949e);margin-top:3px;font-family:var(--font-mono,monospace);user-select:text;word-break:break-all;opacity:0.7;display:flex;align-items:flex-start;gap:4px;">

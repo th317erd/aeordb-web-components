@@ -4,7 +4,7 @@
  * Toast notification system.
  *
  * Usage:
- *   import { showToast } from './aeor-toasts.js';
+ *   import { showToast } from './aeor-toast.js';
  *   showToast('File saved', 'success');
  *   showToast('Upload failed', 'error');
  *   showToast('Rate limited', 'warning');

@@ -30,7 +30,7 @@ import { AeorCrudlify } from '/static/shared/components/aeor-crudlify.js';
 aeordb-web-components/
   components/
     aeor-crudlify.js        ← Phase 1 (done)
-    aeor-toasts.js           ← Phase 1 (done)
+    aeor-toast.js           ← Phase 1 (done)
     aeor-login.js            ← Phase 4
     aeor-dashboard.js        ← Phase 2
     aeor-file-browser.js     ← Phase 3

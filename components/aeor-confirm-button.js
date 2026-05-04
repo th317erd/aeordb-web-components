@@ -1,11 +1,11 @@
 /**
- * <aeor-long-press-button> — Button that requires a 1-second hold to activate.
+ * <aeor-confirm-button> — Button that requires a 1-second hold to activate.
  *
  * A red progress bar fills from left to right while held. Releasing early
  * aborts. Reaching 100% fires the "confirm" event.
  *
  * Usage:
- *   <aeor-long-press-button label="Cancel Upload"></aeor-long-press-button>
+ *   <aeor-confirm-button label="Cancel Upload"></aeor-confirm-button>
  *
  *   button.addEventListener('confirm', () => { ... });
  *
@@ -22,7 +22,7 @@
  *   --lpb-radius: Border radius (default: 6px)
  */
 
-export class AeorLongPressButton extends HTMLElement {
+export class AeorConfirmButton extends HTMLElement {
   constructor() {
     super();
     this._duration = 1000;
@@ -73,11 +73,11 @@ export class AeorLongPressButton extends HTMLElement {
 
   _render() {
     // Inject hover styles once
-    if (!document.getElementById('aeor-lpb-styles')) {
+    if (!document.getElementById('aeor-confirm-btn-styles')) {
       const s = document.createElement('style');
-      s.id = 'aeor-lpb-styles';
+      s.id = 'aeor-confirm-btn-styles';
       s.textContent = `
-        aeor-long-press-button .lpb:hover {
+        aeor-confirm-button .lpb:hover {
           background: color-mix(in srgb, var(--lpb-bg, var(--bg-tertiary, #21262d)) 80%, #fff) !important;
           border-color: var(--lpb-fill, var(--danger, #f85149)) !important;
         }
@@ -219,5 +219,5 @@ export class AeorLongPressButton extends HTMLElement {
   }
 }
 
-if (!customElements.get('aeor-long-press-button'))
-  customElements.define('aeor-long-press-button', AeorLongPressButton);
+if (!customElements.get('aeor-confirm-button'))
+  customElements.define('aeor-confirm-button', AeorConfirmButton);
