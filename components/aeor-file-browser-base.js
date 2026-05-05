@@ -8,6 +8,7 @@ import {
 import './aeor-modal.js';
 import './aeor-confirm-button.js';
 import './aeor-info-box.js';
+import './aeor-tab-view.js';
 
 // File type icon SVGs for grid view thumbnails (non-image files).
 // Each returns an SVG string sized for the grid card icon area.
@@ -373,24 +374,34 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _renderTabBar() {
-    const tabs = this._tabs.map((tab) => {
-      const isActive = (tab.id === this._active_tab_id);
-      const label    = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
+    return '<aeor-tab-view closable new-tab id="file-tab-view"></aeor-tab-view>';
+  }
 
-      return `
-        <div class="tab ${(isActive) ? 'active' : ''}" data-tab-id="${tab.id}">
-          <span class="tab-label">${escapeHtml(label)}</span>
-          <span class="tab-close" data-tab-close="${tab.id}">&times;</span>
-        </div>
-      `;
-    }).join('');
+  _hydrateTabView() {
+    const tabView = this.querySelector('#file-tab-view');
+    if (!tabView) return;
 
-    return `
-      <div class="tab-bar">
-        ${tabs}
-        <div class="tab-new" title="Open new tab">+</div>
-      </div>
-    `;
+    // Populate dynamic tabs from state
+    for (const tab of this._tabs) {
+      const label = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
+      tabView.addTab(tab.id, label);
+    }
+
+    // Activate current tab
+    if (this._active_tab_id) {
+      tabView.switchTo(this._active_tab_id);
+    }
+
+    // Event listeners
+    tabView.addEventListener('tab-change', (event) => {
+      this._switchTab(event.detail.tab);
+    });
+    tabView.addEventListener('tab-close', (event) => {
+      this._closeTab(event.detail.tab);
+    });
+    tabView.addEventListener('tab-new', () => {
+      this.openNewTab();
+    });
   }
 
   _getVisibleEntries(tab) {
@@ -1078,29 +1089,8 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   _bindShellEvents() {
-    // Tab clicks
-    this.querySelectorAll('.tab-label').forEach((label) => {
-      const tabEl = label.closest('.tab');
-      label.addEventListener('click', () => {
-        this._switchTab(tabEl.dataset.tabId);
-      });
-    });
-
-    // Tab close
-    this.querySelectorAll('.tab-close').forEach((btn) => {
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        this._closeTab(btn.dataset.tabClose);
-      });
-    });
-
-    // New tab
-    const newTabBtn = this.querySelector('.tab-new');
-    if (newTabBtn) {
-      newTabBtn.addEventListener('click', () => {
-        this.openNewTab();
-      });
-    }
+    // Tab view handles tab clicks, close, and new-tab via events
+    this._hydrateTabView();
   }
 
   _bindTabContentEvents(tabId) {
@@ -1464,17 +1454,17 @@ class AeorFileBrowserBase extends HTMLElement {
     const currentContainer = this.querySelector(`#tab-content-${this._active_tab_id}`);
     if (currentContainer) currentContainer.classList.add('hidden');
 
-    const currentTabEl = this.querySelector(`.tab[data-tab-id="${this._active_tab_id}"]`);
-    if (currentTabEl) currentTabEl.classList.remove('active');
-
     // Show new tab content
     this._active_tab_id = tabId;
 
     const newContainer = this.querySelector(`#tab-content-${tabId}`);
     if (newContainer) newContainer.classList.remove('hidden');
 
-    const newTabEl = this.querySelector(`.tab[data-tab-id="${tabId}"]`);
-    if (newTabEl) newTabEl.classList.add('active');
+    // Keep tab-view in sync (if called programmatically)
+    const tabView = this.querySelector('#file-tab-view');
+    if (tabView && tabView.activeTab !== tabId) {
+      tabView.switchTo(tabId);
+    }
 
     this._saveState();
 
@@ -1492,6 +1482,10 @@ class AeorFileBrowserBase extends HTMLElement {
     // Remove the tab's DOM container
     const container = this.querySelector(`#tab-content-${tabId}`);
     if (container) container.remove();
+
+    // Remove from tab-view component
+    const tabView = this.querySelector('#file-tab-view');
+    if (tabView) tabView.removeTab(tabId);
 
     this._tabs = this._tabs.filter((t) => t.id !== tabId);
 
@@ -1524,9 +1518,10 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _updateTabBarLabel(tab) {
-    const tabEl = this.querySelector(`.tab[data-tab-id="${tab.id}"] .tab-label`);
-    if (tabEl) {
-      tabEl.textContent = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
+    const label = this._truncate(`${tab.name || tab.id} ${tab.path}`, 30);
+    const tabView = this.querySelector('#file-tab-view');
+    if (tabView) {
+      tabView.updateLabel(tab.id, label);
     }
   }
 
