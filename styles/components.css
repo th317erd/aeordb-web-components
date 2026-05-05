@@ -1346,3 +1346,467 @@ a:focus-visible,
     animation: none !important;
   }
 }
+
+/* ======================================================================
+   Component-specific styles (from aeor-web-components)
+   ====================================================================== */
+
+/* --- aeor-confirm-button.css --- */
+/* aeor-confirm-button styles */
+
+.aeor-confirm-btn {
+  position: relative;
+  overflow: hidden;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--lpb-border, var(--border, #30363d));
+  border-radius: var(--lpb-radius, 0.375rem);
+  background: var(--lpb-bg, var(--bg-tertiary, #21262d));
+  color: var(--lpb-text, var(--text, #e6edf3));
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  box-sizing: border-box;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.aeor-confirm-btn:hover {
+  background: color-mix(in srgb, var(--lpb-bg, var(--bg-tertiary, #21262d)) 80%, #fff) !important;
+  border-color: var(--lpb-fill, var(--danger, #f85149)) !important;
+}
+
+.aeor-confirm-btn-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--progress, 0%);
+  background: var(--lpb-fill, var(--danger, #f85149));
+  opacity: 1;
+  transition: none;
+  pointer-events: none;
+}
+
+.aeor-confirm-btn-label {
+  position: relative;
+  pointer-events: none;
+}
+
+/* Pressing state */
+.aeor-confirm-btn.pressing {
+  border-color: var(--lpb-fill, var(--danger, #f85149));
+}
+
+/* Confirmed state */
+.aeor-confirm-btn.confirmed {
+  background-color: var(--lpb-fill, var(--success, #3fb950));
+  border-color: var(--lpb-fill, var(--success, #3fb950));
+}
+
+.aeor-confirm-btn.confirmed .aeor-confirm-btn-fill {
+  opacity: 0;
+}
+
+/* Theme: danger (red text, red progress) */
+.confirm-button-danger {
+  --lpb-text: var(--error, #f85149);
+  --lpb-fill: var(--error, #f85149);
+}
+
+/* Theme: restore (orange bg, white text, green progress) */
+.confirm-button-restore {
+  --lpb-bg: var(--accent, #f97316);
+  --lpb-text: #fff;
+  --lpb-fill: var(--success, #3fb950);
+  --lpb-border: var(--accent, #f97316);
+}
+
+/* Theme: new/create (gray bg, default text, green progress) */
+.confirm-button-new {
+  --lpb-fill: var(--success, #3fb950);
+}
+
+/* Reset transition */
+.aeor-confirm-btn.resetting .aeor-confirm-btn-fill {
+  transition: width 0.15s ease-out;
+}
+
+.aeor-confirm-btn.resetting {
+  transition: background-color 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aeor-confirm-btn {
+    transition: none;
+  }
+  .aeor-confirm-btn.resetting .aeor-confirm-btn-fill {
+    transition: none;
+  }
+  .aeor-confirm-btn.resetting {
+    transition: none;
+  }
+}
+
+/* --- aeor-modal.css --- */
+/* aeor-modal styles */
+
+@keyframes aeor-modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes aeor-modal-scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+.aeor-modal__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: aeor-modal-fade-in 0.15s ease;
+}
+
+.aeor-modal__dialog {
+  background: var(--card, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 0.75rem;
+  min-width: 22.5rem;
+  max-width: 35rem;
+  width: 100%;
+  max-height: 85vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: aeor-modal-scale-in 0.15s ease;
+}
+
+.aeor-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border, #30363d);
+}
+
+.aeor-modal__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text, #e6edf3);
+}
+
+.aeor-modal__close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.aeor-modal__close-btn:hover {
+  color: var(--text, #e6edf3);
+  background: var(--border, #30363d);
+}
+
+.aeor-modal__body {
+  padding: 1.25rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Form elements inside modals */
+.aeor-modal__body label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #8b949e);
+  margin-bottom: 0.375rem;
+}
+
+.aeor-modal__body input[type="text"],
+.aeor-modal__body input[type="email"],
+.aeor-modal__body input[type="password"],
+.aeor-modal__body input[type="number"],
+.aeor-modal__body input[type="url"],
+.aeor-modal__body input[type="search"],
+.aeor-modal__body input[type="tel"],
+.aeor-modal__body textarea,
+.aeor-modal__body select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary, #0d1117);
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 0.375rem);
+  color: var(--text-primary, #e6edf3);
+  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.aeor-modal__body input:focus,
+.aeor-modal__body textarea:focus,
+.aeor-modal__body select:focus {
+  border-color: var(--accent, #f97316);
+}
+
+.aeor-modal__body input::placeholder,
+.aeor-modal__body textarea::placeholder {
+  color: var(--text-muted, #8b949e);
+}
+
+/* Form field groups */
+.modal-field-group {
+  margin-bottom: 1rem;
+}
+
+.modal-field-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #8b949e);
+  margin-bottom: 0.375rem;
+}
+
+/* Modal footer actions */
+.modal-footer-actions {
+  display: flex;
+  gap: 0.625rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+/* Modal body text */
+.modal-body-text {
+  color: var(--text-muted, #8b949e);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aeor-modal__overlay {
+    animation: none;
+  }
+  .aeor-modal__dialog {
+    animation: none;
+  }
+  .aeor-modal__close-btn {
+    transition: none;
+  }
+}
+
+/* --- aeor-info-box.css --- */
+/* aeor-info-box styles */
+
+aeor-info-box {
+  display: block;
+}
+
+aeor-info-box[compact] {
+  display: inline-block;
+}
+
+.aeor-info-box__container {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--info-box-padding, 1rem);
+  gap: var(--info-box-gap, 0.75rem);
+  background: rgba(56, 139, 253, 0.08);
+  border: 1px solid rgba(56, 139, 253, 0.25);
+  border-radius: var(--info-box-radius, 0.5rem);
+}
+
+.aeor-info-box__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.aeor-info-box__content {
+  color: #58a6ff;
+  font-size: var(--info-box-font-size, 0.9rem);
+  line-height: 1.5;
+}
+
+/* Compact variant */
+aeor-info-box[compact] .aeor-info-box__container {
+  --info-box-padding: 0.375rem 0.625rem;
+  --info-box-gap: 0.5rem;
+  --info-box-radius: 0.25rem;
+  --info-box-font-size: 0.78rem;
+}
+
+/* --- aeor-toast.css --- */
+/*
+ * Toast notification styles
+ * Component-specific CSS for aeor-toast.
+ */
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(100%);
+  transition: opacity 0.3s, transform 0.3s;
+  max-width: 25rem;
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-exit {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.toast-success { border-left: 4px solid var(--success); }
+.toast-error   { border-left: 4px solid var(--error); }
+.toast-warning { border-left: 4px solid var(--warning); }
+.toast-info    { border-left: 4px solid var(--accent); }
+
+.toast-message { flex: 1; }
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.toast-dismiss:hover {
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+/* --- aeor-tab-view.css --- */
+/* aeor-tab-view — Reusable tab component styles */
+
+aeor-tab-view {
+  display: block;
+}
+
+aeor-tab {
+  display: block;
+}
+
+aeor-tab.hidden {
+  display: none;
+}
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 0.375rem 0.375rem 0 0;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, #fff);
+  border-color: color-mix(in srgb, var(--border) 70%, #fff);
+}
+
+.tab.active {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, #fff);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tab-close {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 0.125rem;
+  line-height: 1;
+}
+
+.tab-close:hover { color: var(--error); }
+
+.tab-new {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 0.375rem 0.375rem 0 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.tab-new:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, #fff);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tab:focus-visible,
+.tab-new:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .tab-new {
+    transition: none;
+  }
+}
+
