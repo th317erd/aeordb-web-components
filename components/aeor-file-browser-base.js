@@ -2727,12 +2727,8 @@ class AeorFileBrowserBase extends HTMLElement {
         Sharing: ${escapeHtml(fileNames)}${(paths.length > 1) ? ` (${paths.length} items)` : ''}
       </div>
 
-      <div class="tab-bar share-tab-bar">
-        <div class="tab active share-tab-btn" data-share-tab="people">People</div>
-        <div class="tab share-tab-btn" data-share-tab="link">Link</div>
-      </div>
-
-      <div class="share-tab-people">
+      <aeor-tab-view active="people" class="share-tab-bar">
+        <aeor-tab label="People" name="people">
         <div class="share-section">
           <label class="modal-field-label">Users</label>
           <input type="text" class="share-users-filter modal-field-input share-filter-input" placeholder="Search users...">
@@ -2767,9 +2763,8 @@ class AeorFileBrowserBase extends HTMLElement {
           <button class="secondary small share-cancel">Cancel</button>
           <button class="primary small share-submit">Share</button>
         </div>
-      </div>
-
-      <div class="share-tab-link hidden">
+        </aeor-tab>
+        <aeor-tab label="Link" name="link">
         <div class="share-section">
           <label class="modal-field-label">Permission Level</label>
           <select class="link-permission-select modal-field-input">
@@ -2804,23 +2799,11 @@ class AeorFileBrowserBase extends HTMLElement {
           </div>
         </div>
         <div class="link-active-links">${linkSharesHtml}</div>
-      </div>
+        </aeor-tab>
+      </aeor-tab-view>
 
       ${sharesHtml}
     `;
-
-    // Tab switching
-    body.querySelectorAll('.share-tab-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        body.querySelectorAll('.share-tab-btn').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        const tab = btn.dataset.shareTab;
-        const peopleContent = body.querySelector('.share-tab-people');
-        const linkContent = body.querySelector('.share-tab-link');
-        if (peopleContent) peopleContent.classList.toggle('hidden', tab !== 'people');
-        if (linkContent) linkContent.classList.toggle('hidden', tab !== 'link');
-      });
-    });
 
     // Bind events
     const usersSelect = body.querySelector('.share-users-select');
