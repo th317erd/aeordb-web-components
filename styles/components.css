@@ -821,14 +821,15 @@ input.preview-title:focus {
    ========================================================================== */
 
 aeor-tab-view {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
+  display: block;
 }
 
 aeor-tab {
   display: block;
-  flex: 1;
+}
+
+aeor-tab.hidden {
+  display: none;
 }
 
 .tab-view-content {
