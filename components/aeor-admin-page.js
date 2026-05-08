@@ -314,7 +314,11 @@ export class AeorAdminPage extends HTMLElement {
       modal.remove();
     });
 
-    modal.querySelector('.admin-modal-submit').addEventListener('click', async () => {
+    const submitBtn = modal.querySelector('.admin-modal-submit');
+    submitBtn.addEventListener('click', async () => {
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating...';
       try {
         const result = await this.submitCreate(modal);
         this.onPostCreate(result);
@@ -327,6 +331,8 @@ export class AeorAdminPage extends HTMLElement {
         this._postCreateHandled = false;
       } catch (error) {
         if (window.aeorToast) window.aeorToast('Create failed: ' + error.message, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create';
       }
     });
 
@@ -362,7 +368,11 @@ export class AeorAdminPage extends HTMLElement {
       modal.remove();
     });
 
-    modal.querySelector('.admin-modal-submit').addEventListener('click', async () => {
+    const saveBtn = modal.querySelector('.admin-modal-submit');
+    saveBtn.addEventListener('click', async () => {
+      if (saveBtn.disabled) return;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
       try {
         await this.submitEdit(items, modal);
         modal.close();
@@ -372,6 +382,8 @@ export class AeorAdminPage extends HTMLElement {
         await this._loadItems();
       } catch (error) {
         if (window.aeorToast) window.aeorToast('Update failed: ' + error.message, 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
       }
     });
 
