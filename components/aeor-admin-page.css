@@ -25,7 +25,7 @@
 }
 
 .admin-action-bar.invisible {
-  display: none;
+  visibility: hidden;
 }
 
 .admin-sel-count {
@@ -58,6 +58,13 @@
 .admin-card.selected {
   background: rgba(249, 115, 22, 0.15);
   border-color: var(--accent, #f97316);
+}
+
+/* When card wraps a component with its own chrome, make wrapper transparent */
+.admin-card:has(aeor-snapshot-card) {
+  padding: 0;
+  background: none;
+  border: none;
 }
 
 /* Card content layout */

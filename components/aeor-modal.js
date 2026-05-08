@@ -53,8 +53,11 @@ export class AeorModal extends HTMLElement {
   }
 
   _render() {
-    // Preserve any existing innerHTML as content
-    const contentHTML = this.innerHTML;
+    // Preserve existing child nodes (not just HTML) so event listeners survive
+    const fragment = document.createDocumentFragment();
+    while (this.firstChild) {
+      fragment.appendChild(this.firstChild);
+    }
 
     this.innerHTML = `
       <div class="aeor-modal__overlay">
@@ -63,10 +66,13 @@ export class AeorModal extends HTMLElement {
             <div class="aeor-modal__title">${this._escapeHtml(this._title)}</div>
             <button class="aeor-modal__close-btn" aria-label="Close">&times;</button>
           </div>
-          <div class="aeor-modal__body">${contentHTML}</div>
+          <div class="aeor-modal__body"></div>
         </div>
       </div>
     `;
+
+    // Re-attach preserved child nodes into the body
+    this.querySelector('.aeor-modal__body').appendChild(fragment);
 
     // Wire up close handlers
     const overlay = this.querySelector('.aeor-modal__overlay');
@@ -124,7 +130,20 @@ export class AeorModal extends HTMLElement {
     }
   }
 
+  /** Open the modal (show the overlay). */
+  open() {
+    const overlay = this.querySelector('.aeor-modal__overlay');
+    if (overlay) overlay.style.display = '';
+  }
+
+  /** Close the modal programmatically. */
+  close() {
+    this._dismiss();
+  }
+
   _dismiss() {
+    const overlay = this.querySelector('.aeor-modal__overlay');
+    if (overlay) overlay.style.display = 'none';
     this.dispatchEvent(new CustomEvent('close', { bubbles: true }));
   }
 

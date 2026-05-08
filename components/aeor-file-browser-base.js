@@ -9,6 +9,7 @@ import './aeor-modal.js';
 import './aeor-confirm-button.js';
 import './aeor-info-box.js';
 import './aeor-tab-view.js';
+import './aeor-snapshot-card.js';
 
 // File type icon SVGs for grid view thumbnails (non-image files).
 // Each returns an SVG string sized for the grid card icon area.
@@ -104,7 +105,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._active_tab_id = null;
     this._tab_counter = 0;
     this._scroll_listener = null;
-    this._showHidden = false;
+    this._showHidden = localStorage.getItem('aeordb-show-hidden') === 'true';
     this._sortField = 'name';
     this._sortOrder = 'asc';
   }
@@ -457,10 +458,10 @@ class AeorFileBrowserBase extends HTMLElement {
         <div class="selection-actions-left invisible">
           <span class="selection-count"></span>
           ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
+          <button class="primary small selection-restore hidden">Undelete Selected</button>
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
           ${extraActionsRight}
-          <button class="primary small selection-restore hidden">Restore Selected</button>
         </div>
         <div class="toolbar-right">
           <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
@@ -523,6 +524,7 @@ class AeorFileBrowserBase extends HTMLElement {
           </div>
           <div class="preview-versions hidden" translate="no">
             <div class="preview-versions-heading">Version History</div>
+            <aeor-info-box compact class="preview-versions-info hidden" style="margin-bottom:0.5rem">Any version can be safely restored.</aeor-info-box>
             <div class="preview-versions-list"></div>
           </div>
         </div>
@@ -812,8 +814,6 @@ class AeorFileBrowserBase extends HTMLElement {
         // Has snapshots — show preview of the latest version
         panel.querySelector('.preview-actions').innerHTML = `
           <div class="preview-actions-row">
-            <aeor-info-box compact>Any version can be safely restored.</aeor-info-box>
-            <aeor-confirm-button class="restore-snapshot-btn" label="Restore Selected Snapshot" confirmed-text="File Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);"></aeor-confirm-button>
             <button class="secondary small" data-action="close-preview">\u2715</button>
           </div>
         `;
@@ -839,20 +839,8 @@ class AeorFileBrowserBase extends HTMLElement {
         panel.querySelector('.preview-meta').textContent =
           `Deleted \u00B7 ${formatDate(entry._deleted_at)} \u00B7 Showing snapshot: ${latestVersion.snapshot}`;
 
-        // Store the current snapshot id for the restore button
-        panel._currentSnapshotId = latestVersion.id || latestVersion.snapshot;
-
         // Load version history sidebar
         this._loadVersionHistory(panel, tab, entry);
-
-        // Bind restore long-press button
-        const headerRestoreBtn = panel.querySelector('.restore-snapshot-btn');
-        if (headerRestoreBtn) {
-          headerRestoreBtn.addEventListener('confirm', () => {
-            const snapId = panel._currentSnapshotId;
-            this._confirmRestoreVersion(tab, entry, snapId);
-          });
-        }
         // Bind other action buttons (close)
         panel.querySelectorAll('[data-action]').forEach((button) => {
           button.addEventListener('click', (event) => {
@@ -861,9 +849,9 @@ class AeorFileBrowserBase extends HTMLElement {
           });
         });
       } else {
-        // No snapshots — show trash can with "Restore Deleted File" button
+        // No snapshots — show trash can with "Undelete" button
         panel.querySelector('.preview-actions').innerHTML = `
-          <button class="primary small" data-action="restore-deleted">Restore Deleted File</button>
+          <button class="primary small" data-action="restore-deleted">Undelete</button>
           <button class="secondary small" data-action="close-preview">\u2715</button>
         `;
 
@@ -876,7 +864,7 @@ class AeorFileBrowserBase extends HTMLElement {
               Deleted on ${formatDate(entry._deleted_at)}
             </div>
             <div class="deleted-file-hint">
-              No snapshots available. Click <strong>Restore Deleted File</strong> to recover from the database history.
+              No snapshots available. Click <strong>Undelete</strong> to recover from the database history.
             </div>
           </div>
         `;
@@ -1115,6 +1103,7 @@ class AeorFileBrowserBase extends HTMLElement {
     if (toggleHiddenBtn) {
       toggleHiddenBtn.addEventListener('click', async () => {
         this._showHidden = !this._showHidden;
+        localStorage.setItem('aeordb-show-hidden', this._showHidden);
         // Update button visual (toolbar is preserved, not rebuilt)
         toggleHiddenBtn.classList.toggle('primary', this._showHidden);
         toggleHiddenBtn.classList.toggle('secondary', !this._showHidden);
@@ -1550,15 +1539,28 @@ class AeorFileBrowserBase extends HTMLElement {
         const countEl = leftSlot.querySelector('.selection-count');
         if (countEl) countEl.textContent = `${tab.selectedEntries.size} selected`;
 
-        // Show/hide restore button based on whether deleted files are selected
+        // Check which selected files are deleted vs live
+        const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
+        const selectedPaths = [...tab.selectedEntries];
+        const hasDeletedSelected = selectedPaths.some((path) => {
+          const name = path.split('/').pop();
+          return allEntries.some((e) => e.name === name && e._deleted);
+        });
+        const allDeleted = selectedPaths.every((path) => {
+          const name = path.split('/').pop();
+          return allEntries.some((e) => e.name === name && e._deleted);
+        });
+
+        // Show/hide restore button — only when deleted files are selected
         const restoreBtn = leftSlot.querySelector('.selection-restore');
         if (restoreBtn) {
-          const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
-          const hasDeletedSelected = [...tab.selectedEntries].some((path) => {
-            const name = path.split('/').pop();
-            return allEntries.some((e) => e.name === name && e._deleted);
-          });
           restoreBtn.classList.toggle('hidden', !hasDeletedSelected);
+        }
+
+        // Hide delete button when ALL selected files are already deleted
+        const deleteBtn = leftSlot.querySelector('.selection-delete');
+        if (deleteBtn) {
+          deleteBtn.classList.toggle('hidden', allDeleted);
         }
 
       } else {
@@ -1583,8 +1585,6 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._activeTab();
     if (!tab || tab.selectedEntries.size === 0) return;
 
-    // Long-press button already confirmed — just delete
-    // selectedEntries contains full paths
     const paths = [...tab.selectedEntries];
     for (const filePath of paths) {
       try {
@@ -1599,7 +1599,7 @@ class AeorFileBrowserBase extends HTMLElement {
     tab.selectedEntries.clear();
     tab.lastSelectedAnchor = null;
     tab.preview_entry = null;
-    this._fetchListing();
+    await this._fetchListing();
   }
 
   async _deleteInstant(entry) {
@@ -3244,6 +3244,12 @@ class AeorFileBrowserBase extends HTMLElement {
     versionsPanel.classList.remove('hidden');
     versionsList.innerHTML = '<div class="text-muted">Loading...</div>';
 
+    // Show info box for deleted files
+    const infoBox = versionsPanel.querySelector('.preview-versions-info');
+    if (infoBox) {
+      infoBox.classList.toggle('hidden', !entry._deleted);
+    }
+
     const isDir = entry.entry_type === ENTRY_TYPE_DIR;
     let versions;
 
@@ -3274,79 +3280,53 @@ class AeorFileBrowserBase extends HTMLElement {
 
       versionsList.innerHTML = versions.map((v, idx) => {
         const date = formatDate(v.timestamp);
-        const icon = v.change_type === 'added' ? '+'
-          : v.change_type === 'deleted' ? '\u2212'
-          : v.change_type === 'modified' ? '\u2022'
-          : '\u2013';
-        const colorClass = v.change_type === 'added' ? 'version-change-added'
-          : v.change_type === 'deleted' ? 'version-change-deleted'
-          : v.change_type === 'modified' ? 'version-change-modified'
-          : 'version-change-other';
         const size = v.size ? formatSize(v.size) : '';
-        const isCurrent = idx === 0; // newest version = current
+        const isCurrent = idx === 0;
+        const snapshotId = escapeAttr(v.id || v.snapshot);
+        const snapshotName = escapeAttr(v.snapshot);
+        const changeType = v.change_type || '';
 
-        return `
-          <div class="version-entry${isCurrent ? ' current' : ''}" data-snapshot-id="${escapeAttr(v.id || v.snapshot)}" data-snapshot-name="${escapeAttr(v.snapshot)}" data-content-hash="${escapeAttr(v.content_hash || '')}">
-            <div class="version-entry-header">
-              <div class="version-entry-info">
-                <span class="version-change-icon ${colorClass}">${icon}</span>
-                <span class="version-snapshot-name">${escapeHtml(v.snapshot)}</span>
-              </div>
-              ${!isCurrent && v.change_type !== 'deleted' ? '<aeor-confirm-button class="version-restore-btn" label="Restore" confirmed-text="Restored!" duration="1000" style="--lpb-bg:var(--accent,#f97316);--lpb-text:#fff;--lpb-fill:var(--success,#3fb950);--lpb-border:var(--accent,#f97316);font-size:0.7rem;"></aeor-confirm-button>' : ''}
-              ${isCurrent ? '<span class="version-current-badge">current</span>' : ''}
-            </div>
-            <div class="version-entry-id">
-              <span>${escapeHtml(v.id || '')}</span>
-              <span class="copy-id-btn version-copy-btn" data-copy-id="${escapeAttr(v.id || '')}" title="Copy ID">&#128203;</span>
-            </div>
-            <div class="version-entry-meta">
-              ${date}${size ? ' \u00B7 ' + size : ''}
-            </div>
-          </div>`;
+        // Restorable unless: (a) it's the current version of a live file, or (b) the file was deleted in this snapshot
+        const isRestorable = changeType !== 'deleted' && (!isCurrent || entry._deleted);
+
+        return `<aeor-snapshot-card
+            name="${snapshotName}"
+            snapshot-id="${snapshotId}"
+            date="${escapeAttr(date)}"
+            ${size ? `size="${escapeAttr(size)}"` : ''}
+            ${changeType ? `change-type="${escapeAttr(changeType)}"` : ''}
+            ${isCurrent && !entry._deleted ? 'current' : ''}
+            ${isRestorable ? 'restorable' : ''}
+            content-hash="${escapeAttr(v.content_hash || '')}"
+          ></aeor-snapshot-card>`;
       }).join('');
 
-      // Bind click (preview version) and double-click (restore)
-      versionsList.querySelectorAll('.version-entry').forEach((el, idx) => {
-        const snapshot = el.dataset.snapshotId;
+      // Bind click (preview version) and restore events
+      versionsList.querySelectorAll('aeor-snapshot-card').forEach((card, idx) => {
+        const snapshot = card.getAttribute('snapshot-id');
         const isCurrent = idx === 0;
 
-        el.addEventListener('click', (e) => {
-          if (e.target.classList.contains('version-restore-btn')) return;
+        card.addEventListener('click', (e) => {
+          // Ignore clicks on confirm buttons or copy buttons
+          if (e.target.closest('aeor-confirm-button') || e.target.closest('.snapshot-card-copy-btn')) return;
+
           // Highlight selected version
-          versionsList.querySelectorAll('.version-entry').forEach((v) => {
-            v.classList.remove('current');
+          versionsList.querySelectorAll('aeor-snapshot-card').forEach((c) => {
+            c.removeAttribute('current');
           });
-          el.classList.add('current');
+          card.setAttribute('current', '');
 
           if (isCurrent && !entry._deleted) {
-            // Current version — reload normal preview (no ?version= param)
             tab.preview_component = null;
             this._loadPreview();
           } else {
-            // Historical version — load from snapshot
             const versionInfo = versions.find((v) => (v.id || v.snapshot) === snapshot);
             this._previewAtSnapshot(panel, tab, entry, snapshot, versionInfo);
           }
         });
 
-        const restoreBtn = el.querySelector('.version-restore-btn');
-        if (restoreBtn) {
-          restoreBtn.addEventListener('confirm', (e) => {
-            e.stopPropagation();
-            this._confirmRestoreVersion(tab, entry, snapshot);
-          });
-        }
-      });
-
-      // Bind clipboard copy buttons
-      versionsList.querySelectorAll('.copy-id-btn').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const id = btn.dataset.copyId;
-          navigator.clipboard.writeText(id).then(() => {
-            btn.textContent = '\u2705';
-            setTimeout(() => { btn.textContent = '\uD83D\uDCCB'; }, 1500);
-          });
+        card.addEventListener('snapshot-restore', () => {
+          this._confirmRestoreVersion(tab, entry, snapshot);
         });
       });
     } catch (_) {
@@ -3381,7 +3361,7 @@ class AeorFileBrowserBase extends HTMLElement {
     panel.querySelector('.preview-meta').textContent =
       `Viewing snapshot: ${snapshot}`;
 
-    // Update the stored snapshot ID so "Restore Selected Snapshot" uses the right one
+    // Update the stored snapshot ID for version restore
     panel._currentSnapshotId = snapshot;
   }
 
@@ -3394,12 +3374,12 @@ class AeorFileBrowserBase extends HTMLElement {
       await this._createSnapshot('auto-pre-restore ' + new Date().toISOString().replace('T', ' ').replace('Z', '')).catch(() => {});
       await this._restoreFromSnapshot(filePath, snapshot);
       if (window.aeorToast) window.aeorToast('Version restored', 'success');
-      // Delay refresh to let the confirmed-state button show for its full duration
+      // Refresh listing after a short delay
       this._refreshSuppressed = true;
       setTimeout(() => {
         this._refreshSuppressed = false;
         this._fetchListing();
-      }, 5500);
+      }, 2000);
     } catch (error) {
       if (window.aeorToast) window.aeorToast(`Restore failed: ${error.message}`, 'error');
     }

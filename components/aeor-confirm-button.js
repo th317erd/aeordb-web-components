@@ -36,7 +36,7 @@ export class AeorConfirmButton extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ['label', 'duration', 'disabled', 'confirmed-text'];
+    return ['label', 'duration', 'disabled', 'confirmed-text', 'reset-delay'];
   }
 
   get label() { return this.getAttribute('label') || 'Cancel'; }
@@ -46,6 +46,8 @@ export class AeorConfirmButton extends HTMLElement {
 
   get duration() { return parseInt(this.getAttribute('duration') || '1000', 10); }
   set duration(v) { this.setAttribute('duration', String(v)); }
+
+  get resetDelay() { return parseInt(this.getAttribute('reset-delay') || '1500', 10); }
 
   get disabled() { return this.hasAttribute('disabled'); }
   set disabled(v) { v ? this.setAttribute('disabled', '') : this.removeAttribute('disabled'); }
@@ -136,7 +138,7 @@ export class AeorConfirmButton extends HTMLElement {
         setTimeout(() => {
           this._reset();
           this.disabled = false;
-        }, 5000);
+        }, this.resetDelay);
       } else {
         setTimeout(() => this._reset(), 300);
       }

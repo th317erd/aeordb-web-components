@@ -261,7 +261,7 @@ export class AeorAdminPage extends HTMLElement {
     if (!bar) return;
 
     if (this._selectedIds.size === 0) {
-      bar.innerHTML = '';
+      bar.innerHTML = '&nbsp;';
       bar.classList.add('invisible');
       return;
     }
