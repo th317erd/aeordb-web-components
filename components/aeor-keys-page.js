@@ -82,7 +82,7 @@ export class AeorKeysPage extends AeorAdminPage {
     if (revocable.length === 0) return '';
 
     const label = revocable.length === 1 ? 'Revoke' : `Revoke ${revocable.length} Keys`;
-    return `<aeor-confirm-button class="confirm-button-danger" label="${this._escAttr(label)}"></aeor-confirm-button>`;
+    return `<aeor-confirm-button class="confirm-button-danger" label="${this._escAttr(label)}" confirmed-text="Revoked!" duration="1000"></aeor-confirm-button>`;
   }
 
   _bindActionBarEvents(bar, selectedItems) {
