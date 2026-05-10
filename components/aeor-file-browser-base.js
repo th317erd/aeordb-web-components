@@ -3316,6 +3316,12 @@ class AeorFileBrowserBase extends HTMLElement {
       // Current version is the first entry (newest-first from API)
       const currentHash = entry.hash || '';
 
+      // The user must have UPDATE permission ('u' at position 2 of the
+      // 8-char crudlify pattern) to restore a previous version. View-only
+      // shares (e.g. '.r..l...') hide the Restore button entirely.
+      const effPerms = entry.effective_permissions || '';
+      const canUpdate = effPerms.length >= 3 && effPerms[2] !== '-' && effPerms[2] !== '.';
+
       versionsList.innerHTML = versions.map((v, idx) => {
         const date = formatDate(v.timestamp);
         const size = v.size ? formatSize(v.size) : '';
@@ -3324,8 +3330,12 @@ class AeorFileBrowserBase extends HTMLElement {
         const snapshotName = escapeAttr(v.snapshot);
         const changeType = v.change_type || '';
 
-        // Restorable unless: (a) it's the current version of a live file, or (b) the file was deleted in this snapshot
-        const isRestorable = changeType !== 'deleted' && (!isCurrent || entry._deleted);
+        // Restorable unless: (a) it's the current version of a live file,
+        // (b) the file was deleted in this snapshot, OR (c) the user lacks
+        // update permission on this file.
+        const isRestorable = canUpdate
+          && changeType !== 'deleted'
+          && (!isCurrent || entry._deleted);
 
         return `<aeor-snapshot-card
             name="${snapshotName}"
