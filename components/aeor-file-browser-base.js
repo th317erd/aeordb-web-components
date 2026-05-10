@@ -1793,6 +1793,10 @@ class AeorFileBrowserBase extends HTMLElement {
           path: s.path.endsWith('/') ? s.path : s.path + '/',
           path_pattern: s.path_pattern || null,
           permissions: s.permissions || '-r--l---',
+          size: s.size || 0,
+          created_at: s.created_at || null,
+          updated_at: s.updated_at || null,
+          content_type: s.content_type || null,
         }));
       }
 
@@ -1812,7 +1816,13 @@ class AeorFileBrowserBase extends HTMLElement {
         if (remainder === '' && sp.path_pattern) {
           // We're AT the shared directory — show the specific file
           if (!sharedFiles.has(sp.path_pattern)) {
-            sharedFiles.set(sp.path_pattern, { permissions: sp.permissions });
+            sharedFiles.set(sp.path_pattern, {
+              permissions: sp.permissions,
+              size: sp.size,
+              created_at: sp.created_at,
+              updated_at: sp.updated_at,
+              content_type: sp.content_type,
+            });
           }
         } else {
           const nextSegment = remainder.split('/')[0];
@@ -1838,10 +1848,10 @@ class AeorFileBrowserBase extends HTMLElement {
           name,
           path: currentPath + name,
           entry_type: 1, // FileRecord
-          size: 0,
-          content_type: null,
-          created_at: null,
-          updated_at: null,
+          size: info.size || 0,
+          content_type: info.content_type || null,
+          created_at: info.created_at || null,
+          updated_at: info.updated_at || null,
           effective_permissions: info.permissions,
         }));
 
