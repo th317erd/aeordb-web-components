@@ -478,12 +478,17 @@ class AeorFileBrowserBase extends HTMLElement {
     // Unified toolbar: selection actions on left, view controls on right (always visible)
     const extraActions = this.selectionActions(tab) || '';
     const extraActionsRight = (this.selectionActionsRight ? this.selectionActionsRight(tab) : '') || '';
+    // Selection bar buttons are always in the DOM. Visibility is toggled
+    // dynamically in _updateSelectionVisual based on the actual permissions
+    // of the selected entries — a mixed folder may contain both deletable
+    // and non-deletable files, and the button should appear when ALL
+    // selected items grant the action.
     const toolbarHtml = `
       <div class="selection-bar">
         <div class="selection-actions-left invisible">
           <span class="selection-count"></span>
-          ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
-          ${this._hasPermission('u') ? '<button class="primary small selection-restore hidden">Undelete Selected</button>' : ''}
+          <aeor-confirm-button class="selection-delete hidden" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>
+          <button class="primary small selection-restore hidden">Undelete Selected</button>
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
           ${extraActionsRight}
@@ -1576,16 +1581,51 @@ class AeorFileBrowserBase extends HTMLElement {
           return allEntries.some((e) => e.name === name && e._deleted);
         });
 
+        // Resolve each selected path to its entry so we can inspect
+        // per-entry effective_permissions (mixed folders may contain
+        // some deletable + some not).
+        const selectedEntries = selectedPaths.map((path) => {
+          const name = path.split('/').pop();
+          return allEntries.find((e) => e.name === name) || null;
+        }).filter(Boolean);
+
+        // Helper: true when EVERY selected entry grants the given flag
+        // (read it via the entry's effective_permissions, falling back to
+        // the directory's permissions). Empty selection → false.
+        const allCan = (flag) => {
+          if (selectedEntries.length === 0) return false;
+          return selectedEntries.every((e) => this._hasPermission(flag, e));
+        };
+
+        const canDeleteAll = allCan('d');
+        const canUndeleteAll = allCan('u');
+
         // Show/hide restore button — only when deleted files are selected
+        // AND the user can update them.
         const restoreBtn = leftSlot.querySelector('.selection-restore');
         if (restoreBtn) {
-          restoreBtn.classList.toggle('hidden', !hasDeletedSelected);
+          restoreBtn.classList.toggle('hidden', !hasDeletedSelected || !canUndeleteAll);
         }
 
-        // Hide delete button when ALL selected files are already deleted
+        // Show delete button only when ALL selected items are deletable AND
+        // not already deleted.
         const deleteBtn = leftSlot.querySelector('.selection-delete');
         if (deleteBtn) {
-          deleteBtn.classList.toggle('hidden', allDeleted);
+          deleteBtn.classList.toggle('hidden', allDeleted || !canDeleteAll);
+        }
+
+        // Cut requires update + delete on every selected item.
+        // Copy requires create permission in the destination directory
+        // (we can't fully verify that here, but if the user lacks create
+        // on the current dir, they can't paste anyway).
+        const canUpdateAll = allCan('u');
+        const cutBtn = leftSlot.querySelector('.selection-cut');
+        if (cutBtn) {
+          cutBtn.classList.toggle('hidden', !(canUpdateAll && canDeleteAll));
+        }
+        const copyBtn = leftSlot.querySelector('.selection-copy');
+        if (copyBtn) {
+          copyBtn.classList.toggle('hidden', !this._hasPermission('c'));
         }
 
       } else {

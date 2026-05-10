@@ -419,13 +419,14 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   selectionActions(tab) {
-    // Cut requires moving entries (delete from source). Copy requires create.
-    // Download ZIP just needs read access on the items.
-    const canCut = this._hasPermission('u') && this._hasPermission('d');
-    const canCopy = this._hasPermission('c');
+    // Selection bar buttons are always in the DOM. _updateSelectionVisual
+    // toggles their visibility based on the per-item permissions of the
+    // current selection — a mixed folder may contain some entries you can
+    // edit/delete and others you can't, and the bar should reflect what
+    // the CURRENT selection allows.
     return `
-      ${canCut ? '<button class="secondary small selection-cut">Cut</button>' : ''}
-      ${canCopy ? '<button class="secondary small selection-copy">Copy</button>' : ''}
+      <button class="secondary small selection-cut hidden">Cut</button>
+      <button class="secondary small selection-copy hidden">Copy</button>
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }
