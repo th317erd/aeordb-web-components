@@ -897,7 +897,7 @@ aeor-tab.hidden {
 
 /* Preview versions sidebar */
 .preview-versions {
-  width: 13.75rem;
+  width: 18rem;
   border-left: 1px solid var(--border, #30363d);
   overflow-y: auto;
   padding: 0.625rem;

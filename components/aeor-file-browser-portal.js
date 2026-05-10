@@ -401,9 +401,13 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   selectionActions(tab) {
+    // Cut requires moving entries (delete from source). Copy requires create.
+    // Download ZIP just needs read access on the items.
+    const canCut = this._hasPermission('u') && this._hasPermission('d');
+    const canCopy = this._hasPermission('c');
     return `
-      <button class="secondary small selection-cut">Cut</button>
-      <button class="secondary small selection-copy">Copy</button>
+      ${canCut ? '<button class="secondary small selection-cut">Cut</button>' : ''}
+      ${canCopy ? '<button class="secondary small selection-copy">Copy</button>' : ''}
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }

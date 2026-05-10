@@ -196,6 +196,13 @@ class AeorFileBrowserBase extends HTMLElement {
    *  Flags: c=create, r=read, u=update, d=delete, l=list, i=invoke, f=functions, y=configure
    *  If entry is provided, checks entry.effective_permissions (from server listing).
    *  If no entry or no effective_permissions, checks tab-level or defaults to all-allowed. */
+  /** Whether the current user is the root user (nil UUID). Used to gate
+   *  database-level admin actions like creating snapshots. */
+  _isRoot() {
+    if (typeof window === 'undefined' || !window.AUTH || !window.AUTH.currentUserId) return false;
+    return window.AUTH.currentUserId() === '00000000-0000-0000-0000-000000000000';
+  }
+
   _hasPermission(flag, entry) {
     const perms = (entry && entry.effective_permissions)
       ? entry.effective_permissions
@@ -209,7 +216,10 @@ class AeorFileBrowserBase extends HTMLElement {
     }
     const idx = 'crudlify'.indexOf(flag);
     if (idx < 0 || idx >= perms.length) return false;
-    return perms[idx] !== '-';
+    // The crudlify pattern uses the LETTER for "granted" and any other
+    // character (typically '.' or '-') for "not granted". The server-side
+    // parser checks for an exact letter match, so we mirror that here.
+    return perms[idx] === flag;
   }
 
   /** Get the effective permissions for the current directory.
@@ -441,7 +451,7 @@ class AeorFileBrowserBase extends HTMLElement {
         <div class="page-header-actions">
           ${configBar}
           <button class="secondary small header-paste-btn hidden">Paste</button>
-          <button class="success small snapshot-button">Snapshot</button>
+          ${this._isRoot() ? `<button class="success small snapshot-button">Snapshot</button>` : ''}
           ${this._hasPermission('c') ? `
           <button class="secondary small new-folder-button">New Folder</button>
           <button class="primary small upload-button">Upload</button>
@@ -458,7 +468,7 @@ class AeorFileBrowserBase extends HTMLElement {
         <div class="selection-actions-left invisible">
           <span class="selection-count"></span>
           ${this._hasPermission('d') ? '<aeor-confirm-button class="selection-delete" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
-          <button class="primary small selection-restore hidden">Undelete Selected</button>
+          ${this._hasPermission('u') ? '<button class="primary small selection-restore hidden">Undelete Selected</button>' : ''}
           ${extraActions}
           <button class="secondary small selection-clear">Clear Selection</button>
           ${extraActionsRight}
@@ -742,7 +752,7 @@ class AeorFileBrowserBase extends HTMLElement {
             <div class="page-header-actions">
               ${configBar}
               <button class="secondary small header-paste-btn hidden">Paste</button>
-              <button class="success small snapshot-button">Snapshot</button>
+              ${this._isRoot() ? `<button class="success small snapshot-button">Snapshot</button>` : ''}
               ${this._hasPermission('c') ? `
               <button class="secondary small new-folder-button">New Folder</button>
               <button class="primary small upload-button">Upload</button>
@@ -851,7 +861,7 @@ class AeorFileBrowserBase extends HTMLElement {
       } else {
         // No snapshots — show trash can with "Undelete" button
         panel.querySelector('.preview-actions').innerHTML = `
-          <button class="primary small" data-action="restore-deleted">Undelete</button>
+          ${this._hasPermission('u', entry) ? '<button class="primary small" data-action="restore-deleted">Undelete</button>' : ''}
           <button class="secondary small" data-action="close-preview">\u2715</button>
         `;
 
@@ -3319,8 +3329,7 @@ class AeorFileBrowserBase extends HTMLElement {
       // The user must have UPDATE permission ('u' at position 2 of the
       // 8-char crudlify pattern) to restore a previous version. View-only
       // shares (e.g. '.r..l...') hide the Restore button entirely.
-      const effPerms = entry.effective_permissions || '';
-      const canUpdate = effPerms.length >= 3 && effPerms[2] !== '-' && effPerms[2] !== '.';
+      const canUpdate = this._hasPermission('u', entry);
 
       versionsList.innerHTML = versions.map((v, idx) => {
         const date = formatDate(v.timestamp);
