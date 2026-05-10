@@ -1791,6 +1791,7 @@ class AeorFileBrowserBase extends HTMLElement {
         const shared = await this.getSharedWithMe();
         this._sharedPathData = (shared.paths || []).map((s) => ({
           path: s.path.endsWith('/') ? s.path : s.path + '/',
+          path_pattern: s.path_pattern || null,
           permissions: s.permissions || '-r--l---',
         }));
       }
@@ -1801,26 +1802,53 @@ class AeorFileBrowserBase extends HTMLElement {
 
       // Find child directories at this level that are ancestors of shared paths.
       const childDirs = new Set();
+      // Also find specific files shared at THIS level via path_pattern
+      // (e.g. /Pictures/Family/.aeordb-permissions has links with
+      // path_pattern="aeolus1.png" — show aeolus1.png as a file entry).
+      const sharedFiles = new Map(); // name -> { permissions }
       for (const sp of this._sharedPathData) {
         if (!sp.path.startsWith(currentPath)) continue;
         const remainder = sp.path.slice(currentPath.length);
-        const nextSegment = remainder.split('/')[0];
-        if (nextSegment) childDirs.add(nextSegment);
+        if (remainder === '' && sp.path_pattern) {
+          // We're AT the shared directory — show the specific file
+          if (!sharedFiles.has(sp.path_pattern)) {
+            sharedFiles.set(sp.path_pattern, { permissions: sp.permissions });
+          }
+        } else {
+          const nextSegment = remainder.split('/')[0];
+          if (nextSegment) childDirs.add(nextSegment);
+        }
       }
 
-      if (childDirs.size > 0) {
-        tab.entries = [...childDirs].sort().map((name) => ({
+      const dirEntries = [...childDirs].sort().map((name) => ({
+        name,
+        path: currentPath + name,
+        entry_type: 3,
+        size: 0,
+        content_type: null,
+        created_at: null,
+        updated_at: null,
+        // Ancestor directories are read+list only for navigation
+        effective_permissions: '-r--l---',
+      }));
+
+      const fileEntries = [...sharedFiles.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, info]) => ({
           name,
           path: currentPath + name,
-          entry_type: 3,
+          entry_type: 1, // FileRecord
           size: 0,
           content_type: null,
           created_at: null,
           updated_at: null,
-          // Ancestor directories are read+list only for navigation
-          effective_permissions: '-r--l---',
+          effective_permissions: info.permissions,
         }));
-        tab.total = tab.entries.length;
+
+      const all = [...dirEntries, ...fileEntries];
+      if (all.length > 0) {
+        tab.entries = all;
+        tab.total = all.length;
         this._updateTabContent(tab.id);
       }
     } catch (e) {
