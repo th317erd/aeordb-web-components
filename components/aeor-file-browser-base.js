@@ -223,14 +223,29 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   /** Get the effective permissions for the current directory.
-   *  Checks: listing items' effective_permissions → share session fallback → null (full access). */
+   *  Returns directory-level permissions only — file-pattern shares set
+   *  permissions ON THE FILE not on the directory, so those are skipped. */
   _currentDirectoryPermissions() {
     const tab = this._activeTab ? this._activeTab() : null;
+
+    // Highest priority: tab is showing a file-pattern share (synthetic
+    // listing from shared-with-me OR a share-link to a single file). The
+    // user has NO directory-level permissions — return all-denied so
+    // dir actions (New Folder, Upload, Snapshot) stay hidden.
+    if (tab && tab._listing_from_share_patterns) {
+      return '--------';
+    }
+
     if (tab && tab.entries && tab.entries.length > 0) {
-      const first = tab.entries.find(e => e.effective_permissions);
+      // Skip entries marked as file-pattern shares — their permissions
+      // describe what the user can do TO THAT FILE.
+      const first = tab.entries.find(e => e.effective_permissions && !e._from_share_pattern);
       if (first) return first.effective_permissions;
     }
-    // Fallback: share session URL perm param
+
+    // Fallback: share session URL perm param. For share-link sessions
+    // where the share targets the directory itself (path ends with /),
+    // this is correct.
     if (typeof window !== 'undefined' && window.AUTH && window.AUTH._sharePermissions) {
       return window.AUTH._sharePermissions;
     }
@@ -1879,12 +1894,18 @@ class AeorFileBrowserBase extends HTMLElement {
           created_at: info.created_at || null,
           updated_at: info.updated_at || null,
           effective_permissions: info.permissions,
+          _from_share_pattern: true, // marks file-pattern share — perms are file-level, not directory-level
         }));
 
       const all = [...dirEntries, ...fileEntries];
       if (all.length > 0) {
         tab.entries = all;
         tab.total = all.length;
+        // Track whether this listing is purely synthetic from file-pattern
+        // shares. When true, directory-level actions (New Folder, Upload,
+        // Snapshot) must NOT be enabled — the user has perms on the FILE,
+        // not on the directory itself.
+        tab._listing_from_share_patterns = fileEntries.length > 0 && dirEntries.length === 0;
         this._updateTabContent(tab.id);
       }
     } catch (e) {

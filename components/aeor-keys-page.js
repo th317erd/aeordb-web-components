@@ -60,20 +60,19 @@ export class AeorKeysPage extends AeorAdminPage {
     const status = this._getStatus(item);
     const created = item.created_at ? new Date(item.created_at).toLocaleDateString() : '\u2014';
     const expires = item.expires_at ? new Date(item.expires_at).toLocaleDateString() : '\u2014';
+    const user = this._esc(item.username || this._truncateId(item.user_id));
 
+    // Use the same .admin-card-* classes as Users/Groups/Snapshots so
+    // typography is consistent across all admin pages.
     return `
-      <div class="key-info">
-        <div class="key-label">
+      <div class="admin-card-header">
+        <div class="admin-card-title">
           ${this._esc(item.label || 'Unnamed Key')}
           <span class="badge ${status.cssClass}">${this._esc(status.label)}</span>
         </div>
-        <div class="key-id" title="${this._escAttr(String(item.key_id || ''))}">${this._esc(this._truncateId(item.key_id))}</div>
-        <div class="key-meta">Created ${created} \u00B7 Expires ${expires}</div>
       </div>
-      <div class="key-user" title="${this._escAttr(String(item.user_id || ''))}">
-        <div class="field-label-small">User</div>
-        ${this._esc(item.username || this._truncateId(item.user_id))}
-      </div>
+      <div class="admin-card-meta" title="${this._escAttr(String(item.key_id || ''))}">${this._esc(this._truncateId(item.key_id))}</div>
+      <div class="admin-card-meta">User: ${user} \u00B7 Created ${created} \u00B7 Expires ${expires}</div>
     `;
   }
 

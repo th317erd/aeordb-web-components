@@ -39,6 +39,11 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
       if (initPreviewName) {
         // After the tab loads its listing, auto-open the file's preview.
         this._pendingSharePreview = initPreviewName;
+        // Mark the tab so directory-level actions (New Folder, Upload,
+        // Snapshot) stay hidden. The share grants permissions ON THE FILE,
+        // not on the parent directory.
+        const tab = this._activeTab();
+        if (tab) tab._listing_from_share_patterns = true;
       }
     }
   }
