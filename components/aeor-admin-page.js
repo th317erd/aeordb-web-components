@@ -1,7 +1,7 @@
 'use strict';
 
-import '/shared/components/aeor-modal.js';
-import '/shared/components/aeor-confirm-button.js';
+import './aeor-modal.js';
+import './aeor-confirm-button.js';
 
 /**
  * AeorAdminPage — Base class for admin list pages (Users, Groups, Keys, Snapshots).

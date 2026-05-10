@@ -15,6 +15,7 @@
   gap: 0.75rem;
   flex-wrap: wrap;
   padding: 0.5rem 1rem;
+  height: 2.75rem;
   background: var(--card-hover, #21262d);
   border: 1px solid var(--border, #30363d);
   border-radius: 0.375rem;

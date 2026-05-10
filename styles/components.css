@@ -421,7 +421,7 @@ input.preview-title {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  min-height: 2.75rem;
+  height: 2.75rem;
   background-color: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
@@ -768,7 +768,7 @@ input.preview-title:focus {
   /* Selection bar: wrap buttons, allow height to grow */
   .selection-bar {
     height: auto !important;
-    min-height: 2.75rem;
+    height: 2.75rem;
     flex-wrap: wrap;
     gap: 0.375rem 0.625rem;
     overflow: visible !important;
@@ -1892,6 +1892,7 @@ aeor-snapshot-card.selected {
   gap: 0.75rem;
   flex-wrap: wrap;
   padding: 0.5rem 1rem;
+  height: 2.75rem;
   background: var(--card-hover, #21262d);
   border: 1px solid var(--border, #30363d);
   border-radius: 0.375rem;

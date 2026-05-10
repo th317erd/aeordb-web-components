@@ -1,6 +1,6 @@
 'use strict';
 
-import '/shared/components/aeor-confirm-button.js';
+import './aeor-confirm-button.js';
 
 /**
  * <aeor-snapshot-card> — Shared snapshot/version card component.
