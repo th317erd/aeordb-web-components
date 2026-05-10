@@ -61,11 +61,22 @@
   border-color: var(--accent, #f97316);
 }
 
-/* When card wraps a component with its own chrome, make wrapper transparent */
-.admin-card:has(aeor-snapshot-card) {
-  padding: 0;
-  background: none;
+/* When card wraps a snapshot-card, the WRAPPER provides the chrome
+   (padding, border, radius, hover state) so all admin pages look
+   consistent. The inner snapshot-card sheds its own chrome. */
+.admin-card aeor-snapshot-card {
   border: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+  background: none;
+}
+.admin-card aeor-snapshot-card:hover { border-color: transparent; }
+/* Don't double the highlight when the wrapper is selected/current */
+.admin-card aeor-snapshot-card.current,
+.admin-card aeor-snapshot-card.selected {
+  background: none;
+  border-color: transparent;
 }
 
 /* Card content layout */
