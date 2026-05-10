@@ -421,12 +421,14 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   selectionActions(tab) {
     // Selection bar buttons are always in the DOM. _updateSelectionVisual
     // toggles their visibility based on the per-item permissions of the
-    // current selection — a mixed folder may contain some entries you can
-    // edit/delete and others you can't, and the bar should reflect what
-    // the CURRENT selection allows.
+    // current selection.
+    //
+    // Copy is always available — if the user can read the bytes (which
+    // they must, since the entry shows up in their listing), they can
+    // copy them. Permission to PASTE is enforced at the destination.
     return `
       <button class="secondary small selection-cut hidden">Cut</button>
-      <button class="secondary small selection-copy hidden">Copy</button>
+      <button class="secondary small selection-copy">Copy</button>
       <button class="primary small selection-download-zip">Download ZIP</button>
     `;
   }

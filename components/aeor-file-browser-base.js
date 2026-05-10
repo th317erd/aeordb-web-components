@@ -1614,18 +1614,14 @@ class AeorFileBrowserBase extends HTMLElement {
           deleteBtn.classList.toggle('hidden', allDeleted || !canDeleteAll);
         }
 
-        // Cut requires update + delete on every selected item.
-        // Copy requires create permission in the destination directory
-        // (we can't fully verify that here, but if the user lacks create
-        // on the current dir, they can't paste anyway).
+        // Cut requires update + delete on every selected item (moving =
+        // remove from source). Copy is always allowed — if the user can
+        // read the bytes, they can copy; paste permission is enforced
+        // at the destination.
         const canUpdateAll = allCan('u');
         const cutBtn = leftSlot.querySelector('.selection-cut');
         if (cutBtn) {
           cutBtn.classList.toggle('hidden', !(canUpdateAll && canDeleteAll));
-        }
-        const copyBtn = leftSlot.querySelector('.selection-copy');
-        if (copyBtn) {
-          copyBtn.classList.toggle('hidden', !this._hasPermission('c'));
         }
 
       } else {
