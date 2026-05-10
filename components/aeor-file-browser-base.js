@@ -367,7 +367,7 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   render() {
-    let html = '<div class="page-header"><h1>Files</h1></div>';
+    let html = '<div class="page-header"><h1 class="page-title">Files</h1></div>';
 
     if (this._tabs.length > 0) {
       html += this._renderTabBar();

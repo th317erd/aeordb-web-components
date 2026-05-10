@@ -49,6 +49,14 @@ aeor-snapshot-card.selected {
   flex-wrap: wrap;
 }
 
+/* When the card is inside an admin list (Snapshots page), match the
+   typography of the other admin cards (Users / Groups / Keys). The
+   smaller default sizes are tuned for the version-history sidebar. */
+.admin-card aeor-snapshot-card .snapshot-card-name { font-size: 0.875rem; }
+.admin-card aeor-snapshot-card .snapshot-card-meta { font-size: 0.75rem; }
+.admin-card aeor-snapshot-card .snapshot-card-id   { font-size: 0.75rem; }
+.admin-card aeor-snapshot-card .snapshot-card-badge { font-size: 0.7rem; }
+
 /* Change-type icon */
 .snapshot-card-change-icon {
   font-weight: 700;
