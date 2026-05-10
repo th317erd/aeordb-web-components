@@ -17,16 +17,29 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     // Auto-open a tab if none were restored from localStorage
     if (!this._active_tab_id) {
       let initPath = '/';
+      let initPreviewName = null;
       if (window.AUTH && window.AUTH._isShareSession) {
         const params = new URLSearchParams(window.location.search);
         const sharePath = params.get('path');
         if (sharePath) {
-          // Always treat share paths as directories — append / if missing.
-          // The share link URL may omit the trailing slash for directories.
-          initPath = sharePath.endsWith('/') ? sharePath : sharePath + '/';
+          // A share link may target a single file (no trailing slash) or
+          // an entire directory (trailing slash). For a file: open the
+          // parent directory and queue the file for auto-preview. For a
+          // directory: open it directly.
+          if (sharePath.endsWith('/')) {
+            initPath = sharePath;
+          } else {
+            const lastSlash = sharePath.lastIndexOf('/');
+            initPath = lastSlash > 0 ? sharePath.slice(0, lastSlash + 1) : '/';
+            initPreviewName = sharePath.slice(lastSlash + 1);
+          }
         }
       }
       this._openTab('portal', 'Database', initPath);
+      if (initPreviewName) {
+        // After the tab loads its listing, auto-open the file's preview.
+        this._pendingSharePreview = initPreviewName;
+      }
     }
   }
 

@@ -1786,6 +1786,22 @@ class AeorFileBrowserBase extends HTMLElement {
     if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
       await this._showSharedAncestors(tab);
     }
+
+    // Auto-open a file preview if a share link targeted a specific file.
+    // Set by AeorFileBrowserPortal.connectedCallback when ?path=<file> was
+    // present in the share URL (vs ?path=<directory>/).
+    if (this._pendingSharePreview) {
+      const target = this._pendingSharePreview;
+      this._pendingSharePreview = null;
+      const entry = tab.entries.find((e) => e.name === target);
+      if (entry) {
+        // Open the file preview using the same path the listing rows use.
+        tab.preview_entry = entry;
+        if (typeof this._loadPreview === 'function') {
+          this._loadPreview();
+        }
+      }
+    }
   }
 
   /**
