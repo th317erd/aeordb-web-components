@@ -125,7 +125,12 @@ button.small {
 .toast-warning { border-left: 4px solid var(--warning); }
 .toast-info    { border-left: 4px solid var(--accent); }
 
-.toast-message { flex: 1; }
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .toast-dismiss {
   background: none;
@@ -1615,7 +1620,12 @@ aeor-info-box[compact] .aeor-info-box__container {
 .toast-warning { border-left: 4px solid var(--warning); }
 .toast-info    { border-left: 4px solid var(--accent); }
 
-.toast-message { flex: 1; }
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .toast-dismiss {
   background: none;
