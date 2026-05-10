@@ -1782,6 +1782,14 @@ aeor-snapshot-card.selected {
   flex-wrap: wrap;
 }
 
+/* Inside the Snapshots admin list, match admin-card font sizes so all
+   admin pages look consistent. The smaller defaults above are tuned
+   for the file-browser version-history sidebar. */
+.admin-card aeor-snapshot-card .snapshot-card-name { font-size: 0.875rem; }
+.admin-card aeor-snapshot-card .snapshot-card-meta { font-size: 0.75rem; }
+.admin-card aeor-snapshot-card .snapshot-card-id   { font-size: 0.75rem; }
+.admin-card aeor-snapshot-card .snapshot-card-badge { font-size: 0.7rem; }
+
 /* Change-type icon */
 .snapshot-card-change-icon {
   font-weight: 700;
