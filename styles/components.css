@@ -2018,6 +2018,21 @@ aeor-snapshot-card.selected {
   gap: 0.75rem;
 }
 
+.keys-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.keys-copy-row .form-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.keys-copy-row .primary {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 768px) {
   .admin-card {
     padding: 0.5rem;
