@@ -258,7 +258,7 @@ export class AeorKeysPage extends AeorAdminPage {
     const doneBtn = formContainer.querySelector('#keys-done-btn');
     if (doneBtn) {
       doneBtn.addEventListener('click', () => {
-        modal.remove();
+        modal.close();
         this._loadItems();
       });
     }

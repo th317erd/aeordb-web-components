@@ -348,13 +348,14 @@ export class AeorAdminPage extends HTMLElement {
     );
     modal.appendChild(formContainer);
 
-    // Universal aeor-modal auto-displays on appendChild (connectedCallback
-    // builds the DOM) and dispatches a 'close' event when dismissed via
-    // backdrop / Escape / close button — no explicit .open()/.close().
-    document.body.appendChild(modal);
+    // .open() attaches the modal to body and shows it. .close() hides
+    // and fires `close`; the listener below disposes the element so
+    // every dismissal path lands on a single removal step.
+    modal.addEventListener('close', () => modal.remove());
+    modal.open();
 
     modal.querySelector('.admin-modal-cancel').addEventListener('click', () => {
-      modal.remove();
+      modal.close();
     });
 
     const submitBtn = modal.querySelector('.admin-modal-submit');
@@ -366,7 +367,7 @@ export class AeorAdminPage extends HTMLElement {
         const result = await this.submitCreate(modal);
         this.onPostCreate(result);
         if (!this._postCreateHandled) {
-          modal.remove();
+          modal.close();
           if (window.aeorToast) window.aeorToast('Created successfully', 'success');
           await this._loadItems();
         }
@@ -377,8 +378,6 @@ export class AeorAdminPage extends HTMLElement {
         submitBtn.textContent = 'Create';
       }
     });
-
-    modal.addEventListener('close', () => modal.remove());
   }
 
   // ── Edit modal ─────────────────────────────────────────────────────
@@ -401,12 +400,11 @@ export class AeorAdminPage extends HTMLElement {
     );
     modal.appendChild(formContainer);
 
-    // See note in _openCreateModal — universal aeor-modal has no
-    // explicit open()/close(); appendChild shows it, remove() hides it.
-    document.body.appendChild(modal);
+    modal.addEventListener('close', () => modal.remove());
+    modal.open();
 
     modal.querySelector('.admin-modal-cancel').addEventListener('click', () => {
-      modal.remove();
+      modal.close();
     });
 
     const saveBtn = modal.querySelector('.admin-modal-submit');
@@ -416,7 +414,7 @@ export class AeorAdminPage extends HTMLElement {
       saveBtn.textContent = 'Saving...';
       try {
         await this.submitEdit(items, modal);
-        modal.remove();
+        modal.close();
         if (window.aeorToast) window.aeorToast('Updated successfully', 'success');
         this._clearSelection();
         await this._loadItems();
@@ -426,7 +424,5 @@ export class AeorAdminPage extends HTMLElement {
         saveBtn.textContent = 'Save';
       }
     });
-
-    modal.addEventListener('close', () => modal.remove());
   }
 }
