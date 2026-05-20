@@ -1,6 +1,9 @@
 'use strict';
 
+import { elements } from '../../../aeor/elements.js';
 import { escapeHtml } from '../../utils.js';
+
+const { div, pre, code } = elements;
 
 class AeorPreviewText extends HTMLElement {
   constructor() {
@@ -9,35 +12,56 @@ class AeorPreviewText extends HTMLElement {
   }
 
   connectedCallback() {
-    this.innerHTML = '<div class="loading">Loading preview...</div>';
+    this._showLoading();
+  }
+
+  _showLoading() {
+    this.textContent = '';
+    this.appendChild(div.class('loading')('Loading preview...').build(document));
+  }
+
+  _showMessage(cls, message) {
+    this.textContent = '';
+    this.appendChild(div.class(cls)(message).build(document));
   }
 
   async load() {
     const newSrc = this.getAttribute('src');
     if (newSrc === this._currentSrc) return;
     this._currentSrc = newSrc;
-    const src = this.getAttribute('src');
-    if (!src) {
-      this.innerHTML = '<div class="preview-binary">No source URL</div>';
+
+    if (!newSrc) {
+      this._showMessage('preview-binary', 'No source URL');
       return;
     }
 
-    this.innerHTML = '<div class="loading">Loading preview...</div>';
+    this._showLoading();
 
     try {
-      const response = await fetch(src);
+      const response = await fetch(newSrc);
       const text = await response.text();
       const content = text.substring(0, 50000); // cap at 50K chars
       const filename = this.getAttribute('filename') || '';
       const contentType = this.getAttribute('content-type') || 'text/plain';
 
+      this.textContent = '';
+
       if (this._isMarkdown(filename, contentType)) {
-        this.innerHTML = `<div class="preview-markdown">${this._renderMarkdown(content)}</div>`;
+        // Markdown renders to HTML by definition — the regex pipeline
+        // below produces an HTML string. We build the wrapper with the
+        // element-builder and inject the rendered HTML as its content;
+        // there's no clean way to express markdown output as an
+        // element-builder tree without rewriting the whole renderer.
+        const wrapper = div.class('preview-markdown')().build(document);
+        wrapper.innerHTML = this._renderMarkdown(content);
+        this.appendChild(wrapper);
       } else {
-        this.innerHTML = `<pre class="preview-text"><code>${escapeHtml(content)}</code></pre>`;
+        this.appendChild(
+          pre.class('preview-text')(code(content)).build(document),
+        );
       }
     } catch (error) {
-      this.innerHTML = `<div class="preview-binary">Failed to load preview: ${escapeHtml(error.message)}</div>`;
+      this._showMessage('preview-binary', `Failed to load preview: ${error.message}`);
     }
   }
 
@@ -87,7 +111,6 @@ class AeorPreviewText extends HTMLElement {
 
     return html;
   }
-
 }
 
 customElements.define('aeor-preview-text', AeorPreviewText);

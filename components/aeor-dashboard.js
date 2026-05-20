@@ -13,7 +13,10 @@
  * With `base-url`, hits the specified remote URL (client connections page).
  */
 
+import { elements } from '../../aeor/elements.js';
 import { escapeHtml, formatBytes, formatNumber, formatRate, formatBytesRate, formatPercent, formatUptime } from '../utils.js';
+
+const { div, h1, span, svg, text, line, polyline, circle, rect, strong } = elements;
 
 const COUNT_DEFINITIONS = [
   { key: 'files',       label: 'Files',       format: formatNumber },
@@ -120,8 +123,7 @@ export class AeorDashboard extends HTMLElement {
           this.updateActivityChart();
 
           const errorContainer = this.querySelector('#dashboard-error');
-          if (errorContainer)
-            errorContainer.innerHTML = '';
+          if (errorContainer) errorContainer.textContent = '';
         } catch (_) {
           // malformed event, skip
         }
@@ -144,97 +146,90 @@ export class AeorDashboard extends HTMLElement {
   }
 
   render() {
-    this.innerHTML = `
-      <div class="page-header">
-        <h1 class="page-title">Dashboard</h1>
-      </div>
-      <div id="identity-bar" class="identity-bar">
-        <div><span class="identity-label">Version</span> <span id="identity-version" class="identity-value">&mdash;</span></div>
-        <div><span class="identity-label">Database</span> <span id="identity-database-path" class="identity-value">&mdash;</span></div>
-        <div><span class="identity-label">Uptime</span> <span id="identity-uptime" class="identity-value">&mdash;</span></div>
-        <div><span class="identity-label">Hash</span> <span id="identity-hash-algorithm" class="identity-value">&mdash;</span></div>
-      </div>
-      <div id="dashboard-error"></div>
-      <div class="section-heading">Counts</div>
-      <div class="stats-grid" id="stats-counts">
-        ${COUNT_DEFINITIONS.map((definition) => `
-          <div class="stat-card">
-            <div class="stat-label">${definition.label}</div>
-            <div class="stat-value" id="stat-count-${definition.key}">&mdash;</div>
-          </div>
-        `).join('')}
-      </div>
-      <div class="section-heading">Sizes</div>
-      <div class="stats-grid" id="stats-sizes">
-        ${SIZE_DEFINITIONS.map((definition) => `
-          <div class="stat-card">
-            <div class="stat-label">${definition.label}</div>
-            <div class="stat-value" id="stat-size-${definition.key}">&mdash;</div>
-          </div>
-        `).join('')}
-      </div>
-      <div class="section-heading">Throughput</div>
-      <div class="stats-grid" id="stats-throughput">
-        <div class="stat-card">
-          <div class="stat-label">Writes / sec (1m)</div>
-          <div class="stat-value" id="stat-writes-per-sec">&mdash;</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Reads / sec (1m)</div>
-          <div class="stat-value" id="stat-reads-per-sec">&mdash;</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Write rate (1m)</div>
-          <div class="stat-value" id="stat-bytes-written-per-sec">&mdash;</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Read rate (1m)</div>
-          <div class="stat-value" id="stat-bytes-read-per-sec">&mdash;</div>
-        </div>
-      </div>
-      <div class="section-heading">Health</div>
-      <div class="stats-grid" id="stats-health">
-        <div class="stat-card">
-          <div class="stat-label">Disk Usage</div>
-          <div id="health-disk-usage" class="health-disk-usage">
-            <div class="health-disk-row">
-              <span class="health-disk-label">Usage</span>
-              <span class="health-disk-value" id="health-disk-usage-value">&mdash;</span>
-            </div>
-            <div class="progress-track">
-              <div id="health-disk-usage-bar" class="progress-fill"></div>
-            </div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Dedup Hit Rate</div>
-          <div class="stat-value" id="health-dedup-hit-rate">&mdash;</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Write Buffer Depth</div>
-          <div class="stat-value" id="health-write-buffer-depth">&mdash;</div>
-        </div>
-      </div>
-      <div class="charts-row">
-        <div class="chart-card">
-          <div class="chart-title">Activity (ops/sec)</div>
-          <div class="chart-container" id="chart-activity"></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-title">Throughput (bytes/sec)</div>
-          <div class="chart-container" id="chart-throughput"></div>
-        </div>
-      </div>
-      <div class="charts-row">
-        <div class="chart-card">
-          <div class="chart-title">Storage Overview</div>
-          <div class="chart-container" id="chart-storage"></div>
-        </div>
-        <div class="chart-card chart-card-placeholder">
-          <div class="chart-placeholder-text">Additional charts coming soon</div>
-        </div>
-      </div>
-    `;
+    const statCard = (labelText, valueId) =>
+      div.class('stat-card')(
+        div.class('stat-label')(labelText),
+        div.class('stat-value').id(valueId)('—'),
+      );
+
+    const identityCell = (labelText, valueId) =>
+      div(
+        span.class('identity-label')(labelText),
+        ' ',
+        span.class('identity-value').id(valueId)('—'),
+      );
+
+    this.textContent = '';
+    this.appendChild(
+      div(
+        div.class('page-header')(
+          h1.class('page-title')('Dashboard'),
+        ),
+        div.id('identity-bar').class('identity-bar')(
+          identityCell('Version', 'identity-version'),
+          identityCell('Database', 'identity-database-path'),
+          identityCell('Uptime', 'identity-uptime'),
+          identityCell('Hash', 'identity-hash-algorithm'),
+        ),
+        div.id('dashboard-error')(),
+
+        div.class('section-heading')('Counts'),
+        div.class('stats-grid').id('stats-counts')(
+          ...COUNT_DEFINITIONS.map((d) => statCard(d.label, `stat-count-${d.key}`)),
+        ),
+
+        div.class('section-heading')('Sizes'),
+        div.class('stats-grid').id('stats-sizes')(
+          ...SIZE_DEFINITIONS.map((d) => statCard(d.label, `stat-size-${d.key}`)),
+        ),
+
+        div.class('section-heading')('Throughput'),
+        div.class('stats-grid').id('stats-throughput')(
+          statCard('Writes / sec (1m)', 'stat-writes-per-sec'),
+          statCard('Reads / sec (1m)', 'stat-reads-per-sec'),
+          statCard('Write rate (1m)', 'stat-bytes-written-per-sec'),
+          statCard('Read rate (1m)', 'stat-bytes-read-per-sec'),
+        ),
+
+        div.class('section-heading')('Health'),
+        div.class('stats-grid').id('stats-health')(
+          div.class('stat-card')(
+            div.class('stat-label')('Disk Usage'),
+            div.id('health-disk-usage').class('health-disk-usage')(
+              div.class('health-disk-row')(
+                span.class('health-disk-label')('Usage'),
+                span.class('health-disk-value').id('health-disk-usage-value')('—'),
+              ),
+              div.class('progress-track')(
+                div.id('health-disk-usage-bar').class('progress-fill')(),
+              ),
+            ),
+          ),
+          statCard('Dedup Hit Rate', 'health-dedup-hit-rate'),
+          statCard('Write Buffer Depth', 'health-write-buffer-depth'),
+        ),
+
+        div.class('charts-row')(
+          div.class('chart-card')(
+            div.class('chart-title')('Activity (ops/sec)'),
+            div.class('chart-container').id('chart-activity')(),
+          ),
+          div.class('chart-card')(
+            div.class('chart-title')('Throughput (bytes/sec)'),
+            div.class('chart-container').id('chart-throughput')(),
+          ),
+        ),
+        div.class('charts-row')(
+          div.class('chart-card')(
+            div.class('chart-title')('Storage Overview'),
+            div.class('chart-container').id('chart-storage')(),
+          ),
+          div.class('chart-card chart-card-placeholder')(
+            div.class('chart-placeholder-text')('Additional charts coming soon'),
+          ),
+        ),
+      ).build(document),
+    );
   }
 
   async fetchStats() {
@@ -257,12 +252,15 @@ export class AeorDashboard extends HTMLElement {
       this.updateActivityChart();
 
       const errorContainer = this.querySelector('#dashboard-error');
-      if (errorContainer)
-        errorContainer.innerHTML = '';
+      if (errorContainer) errorContainer.textContent = '';
     } catch (error) {
       const errorContainer = this.querySelector('#dashboard-error');
-      if (errorContainer)
-        errorContainer.innerHTML = `<div class="alert alert-error">Failed to load stats: ${escapeHtml(error.message)}</div>`;
+      if (errorContainer) {
+        errorContainer.textContent = '';
+        errorContainer.appendChild(
+          div.class('alert alert-error')(`Failed to load stats: ${error.message}`).build(document),
+        );
+      }
     }
   }
 
@@ -380,8 +378,7 @@ export class AeorDashboard extends HTMLElement {
 
   updateStorageChart(data) {
     const container = this.querySelector('#chart-storage');
-    if (!container)
-      return;
+    if (!container) return;
 
     const counts = data.counts || {};
     const labels = ['Chunks', 'Files', 'Directories', 'Snapshots'];
@@ -392,34 +389,28 @@ export class AeorDashboard extends HTMLElement {
       counts.snapshots || 0,
     ];
 
-    container.innerHTML = '';
+    container.textContent = '';
     this.renderBarChart(container, labels, values);
   }
 
   renderBarChart(container, labels, values) {
     const maxValue = Math.max(...values, 1);
 
-    let html = '<div class="bar-chart">';
-
-    for (let index = 0; index < labels.length; index++) {
+    const rows = labels.map((labelText, index) => {
       const percentage = (values[index] / maxValue) * 100;
       const color = CHART_COLORS[index % CHART_COLORS.length];
+      return div.class('bar-chart-row')(
+        div.class('bar-chart-header')(
+          span.class('bar-chart-label')(labelText),
+          span.class('bar-chart-value')(formatNumber(values[index])),
+        ),
+        div.class('bar-track')(
+          div.class('bar-fill').style(`background:${color};width:${Math.max(percentage, 1)}%`)(),
+        ),
+      );
+    });
 
-      html += `
-        <div class="bar-chart-row">
-          <div class="bar-chart-header">
-            <span class="bar-chart-label">${labels[index]}</span>
-            <span class="bar-chart-value">${formatNumber(values[index])}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="background:${color};width:${Math.max(percentage, 1)}%;"></div>
-          </div>
-        </div>
-      `;
-    }
-
-    html += '</div>';
-    container.innerHTML = html;
+    container.appendChild(div.class('bar-chart')(...rows).build(document));
   }
 
   recordActivityPoint(data) {
@@ -443,12 +434,15 @@ export class AeorDashboard extends HTMLElement {
 
   updateActivityChart() {
     const history = this._activityHistory;
-    const waiting = '<div class="chart-waiting">Collecting data...</div>';
+    const showWaiting = (container) => {
+      container.textContent = '';
+      container.appendChild(div.class('chart-waiting')('Collecting data...').build(document));
+    };
 
     const opsContainer = this.querySelector('#chart-activity');
     if (opsContainer) {
       if (history.length < 2) {
-        opsContainer.innerHTML = waiting;
+        showWaiting(opsContainer);
       } else {
         this.renderDualLineChart(opsContainer, history, 'writesPerSecond', 'readsPerSecond', 'writes', 'reads', formatRate);
       }
@@ -457,7 +451,7 @@ export class AeorDashboard extends HTMLElement {
     const throughputContainer = this.querySelector('#chart-throughput');
     if (throughputContainer) {
       if (history.length < 2) {
-        throughputContainer.innerHTML = waiting;
+        showWaiting(throughputContainer);
       } else {
         this.renderDualLineChart(throughputContainer, history, 'bytesWrittenPerSecond', 'bytesReadPerSecond', 'written', 'read', formatBytesRate);
       }
@@ -487,76 +481,109 @@ export class AeorDashboard extends HTMLElement {
     const orangePoints = history.map((p, i) => `${toX(i)},${toY(p[orangeKey])}`).join(' ');
     const greenPoints = history.map((p, i) => `${toX(i)},${toY(p[greenKey])}`).join(' ');
 
-    // Y-axis labels
+    const monoLabel = (x, y, anchor, fill, content) =>
+      text.x(String(x)).y(String(y))
+        .textAnchor(anchor)
+        .fill(fill)
+        .fontSize('10')
+        .fontFamily('var(--font-mono)')(content);
+
+    // Y-axis labels + grid lines
     const yLabelCount = 4;
-    let yLabels = '';
+    const yLabelEls = [];
     for (let index = 0; index <= yLabelCount; index++) {
       const value = minValue + (range * index / yLabelCount);
       const y = paddingTop + chartHeight - (index / yLabelCount) * chartHeight;
-      yLabels += `<text x="${paddingLeft - 8}" y="${y + 4}" text-anchor="end" fill="#8b949e" font-size="10" font-family="var(--font-mono)">${formatter(value)}</text>`;
-      yLabels += `<line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="#30363d" stroke-width="1"/>`;
+      yLabelEls.push(monoLabel(paddingLeft - 8, y + 4, 'end', '#8b949e', formatter(value)));
+      yLabelEls.push(
+        line
+          .x1(String(paddingLeft)).y1(String(y))
+          .x2(String(width - paddingRight)).y2(String(y))
+          .stroke('#30363d').strokeWidth('1')(),
+      );
     }
 
     // X-axis time labels
-    const timeLabels = [];
+    const timeLabelEls = [];
     const labelCount = Math.min(5, history.length);
     for (let index = 0; index < labelCount; index++) {
       const dataIndex = Math.floor(index * (history.length - 1) / (labelCount - 1));
       const x = toX(dataIndex);
       const time = new Date(history[dataIndex].timestamp);
-      const label = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
-      timeLabels.push(`<text x="${x}" y="${height - 4}" text-anchor="middle" fill="#8b949e" font-size="10" font-family="var(--font-mono)">${label}</text>`);
+      const labelText = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
+      timeLabelEls.push(monoLabel(x, height - 4, 'middle', '#8b949e', labelText));
     }
 
     // Legend
     const legendY = 12;
-    const legend = `
-      <circle cx="${paddingLeft + 4}" cy="${legendY}" r="4" fill="#f0883e"/>
-      <text x="${paddingLeft + 12}" y="${legendY + 4}" fill="#f0883e" font-size="10" font-family="var(--font-mono)">${orangeLabel}</text>
-      <circle cx="${paddingLeft + 14 + orangeLabel.length * 6}" cy="${legendY}" r="4" fill="#3fb950"/>
-      <text x="${paddingLeft + 22 + orangeLabel.length * 6}" y="${legendY + 4}" fill="#3fb950" font-size="10" font-family="var(--font-mono)">${greenLabel}</text>
-    `;
+    const legendEls = [
+      circle.cx(String(paddingLeft + 4)).cy(String(legendY)).r('4').fill('#f0883e')(),
+      monoLabel(paddingLeft + 12, legendY + 4, 'start', '#f0883e', orangeLabel),
+      circle.cx(String(paddingLeft + 14 + orangeLabel.length * 6)).cy(String(legendY)).r('4').fill('#3fb950')(),
+      monoLabel(paddingLeft + 22 + orangeLabel.length * 6, legendY + 4, 'start', '#3fb950', greenLabel),
+    ];
 
-    // Hover elements (hidden by default)
+    // Hover overlay (line, two dots) — hidden until mousemove fires.
     const hoverId = `hover-${orangeKey}-${Date.now()}`;
-    const hoverElements = `
-      <line id="${hoverId}-line" x1="0" y1="${paddingTop}" x2="0" y2="${paddingTop + chartHeight}" stroke="#8b949e" stroke-width="1" stroke-dasharray="3,3" visibility="hidden"/>
-      <circle id="${hoverId}-dot-orange" r="4" fill="#f0883e" stroke="#0f1117" stroke-width="2" visibility="hidden"/>
-      <circle id="${hoverId}-dot-green" r="4" fill="#3fb950" stroke="#0f1117" stroke-width="2" visibility="hidden"/>
-    `;
+    const hoverEls = [
+      line.id(`${hoverId}-line`)
+        .x1('0').y1(String(paddingTop))
+        .x2('0').y2(String(paddingTop + chartHeight))
+        .stroke('#8b949e').strokeWidth('1').strokeDasharray('3,3').visibility('hidden')(),
+      circle.id(`${hoverId}-dot-orange`).r('4').fill('#f0883e')
+        .stroke('#0f1117').strokeWidth('2').visibility('hidden')(),
+      circle.id(`${hoverId}-dot-green`).r('4').fill('#3fb950')
+        .stroke('#0f1117').strokeWidth('2').visibility('hidden')(),
+    ];
 
-    // Invisible hit areas for each data point
-    let hitAreas = '';
+    // Invisible per-data-point hit areas to snap the hover to the nearest point.
+    const hitEls = [];
     for (let i = 0; i < history.length; i++) {
       const x = toX(i);
-      const halfGap = (i < history.length - 1) ? (toX(i + 1) - x) / 2 : (x - toX(Math.max(0, i - 1))) / 2;
-      hitAreas += `<rect x="${x - halfGap}" y="${paddingTop}" width="${halfGap * 2}" height="${chartHeight}" fill="transparent" data-idx="${i}"/>`;
+      const halfGap = (i < history.length - 1)
+        ? (toX(i + 1) - x) / 2
+        : (x - toX(Math.max(0, i - 1))) / 2;
+      hitEls.push(
+        rect.x(String(x - halfGap)).y(String(paddingTop))
+          .width(String(halfGap * 2)).height(String(chartHeight))
+          .fill('transparent').dataIdx(String(i))(),
+      );
     }
 
     container.classList.add('chart-container-relative');
-    container.innerHTML = `
-      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="chart-svg">
-        ${yLabels}
-        ${timeLabels.join('')}
-        ${legend}
-        <polyline points="${orangePoints}" fill="none" stroke="#f0883e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-        <polyline points="${greenPoints}" fill="none" stroke="#3fb950" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-        ${hoverElements}
-        ${hitAreas}
-      </svg>
-      <div id="${hoverId}-tooltip" class="chart-tooltip"></div>
-    `;
+    container.textContent = '';
+    container.appendChild(
+      svg
+        .width(String(width)).height(String(height))
+        .viewBox(`0 0 ${width} ${height}`)
+        .class('chart-svg')(
+          ...yLabelEls,
+          ...timeLabelEls,
+          ...legendEls,
+          polyline.points(orangePoints).fill('none').stroke('#f0883e')
+            .strokeWidth('2').strokeLinejoin('round').strokeLinecap('round')(),
+          polyline.points(greenPoints).fill('none').stroke('#3fb950')
+            .strokeWidth('2').strokeLinejoin('round').strokeLinecap('round')(),
+          ...hoverEls,
+          ...hitEls,
+        ).build(document),
+    );
+    container.appendChild(
+      div.id(`${hoverId}-tooltip`).class('chart-tooltip')().build(document),
+    );
 
-    // Wire hover events
-    const svg = container.querySelector('svg');
+    // Wire hover events. Local names avoid shadowing the module-level
+    // `svg` / `rect` element-builder bindings (const/let hoisting would
+    // otherwise put them in the TDZ for the entire function body).
+    const svgEl = container.querySelector('svg');
     const hoverLine = container.querySelector(`#${hoverId}-line`);
     const dotOrange = container.querySelector(`#${hoverId}-dot-orange`);
     const dotGreen = container.querySelector(`#${hoverId}-dot-green`);
     const tooltip = container.querySelector(`#${hoverId}-tooltip`);
 
-    svg.addEventListener('mousemove', (e) => {
-      const rect = svg.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
+    svgEl.addEventListener('mousemove', (e) => {
+      const svgRect = svgEl.getBoundingClientRect();
+      const mouseX = e.clientX - svgRect.left;
       // Find nearest data point
       let nearest = 0;
       let nearestDist = Infinity;
@@ -584,11 +611,22 @@ export class AeorDashboard extends HTMLElement {
 
       const time = new Date(p.timestamp);
       const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`;
-      tooltip.innerHTML = `
-        <div class="tooltip-time">${timeStr}</div>
-        <div><span class="tooltip-dot-orange">\u25CF</span> ${orangeLabel}: <strong>${formatter(oyVal)}</strong></div>
-        <div><span class="tooltip-dot-green">\u25CF</span> ${greenLabel}: <strong>${formatter(gyVal)}</strong></div>
-      `;
+      tooltip.textContent = '';
+      tooltip.appendChild(
+        div(
+          div.class('tooltip-time')(timeStr),
+          div(
+            span.class('tooltip-dot-orange')('\u25CF'),
+            ` ${orangeLabel}: `,
+            strong(formatter(oyVal)),
+          ),
+          div(
+            span.class('tooltip-dot-green')('\u25CF'),
+            ` ${greenLabel}: `,
+            strong(formatter(gyVal)),
+          ),
+        ).build(document),
+      );
       tooltip.style.display = 'block';
 
       // Position tooltip — flip to left side if near right edge
@@ -597,7 +635,7 @@ export class AeorDashboard extends HTMLElement {
       tooltip.style.top = `${paddingTop}px`;
     });
 
-    svg.addEventListener('mouseleave', () => {
+    svgEl.addEventListener('mouseleave', () => {
       hoverLine.setAttribute('visibility', 'hidden');
       dotOrange.setAttribute('visibility', 'hidden');
       dotGreen.setAttribute('visibility', 'hidden');

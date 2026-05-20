@@ -1,6 +1,10 @@
 'use strict';
 
-import './aeor-confirm-button.js';
+import { elements } from '../../aeor/elements.js';
+import '../../aeor/components/aeor-confirm-button.js';
+
+const { div, span } = elements;
+const aeorConfirmButton = elements['aeor-confirm-button'];
 
 /**
  * <aeor-snapshot-card> — Shared snapshot/version card component.
@@ -59,104 +63,100 @@ class AeorSnapshotCard extends HTMLElement {
   // ── Render ────────────────────────────────────────────────────────────
 
   _render() {
-    const name = this._esc(this.snapshotName);
+    const name = this.snapshotName;
     const id = this.snapshotId;
-    const displayId = this.truncateId ? this._truncate(id) : this._esc(id);
-    const date = this._esc(this.date);
-    const size = this._esc(this.size);
+    const displayId = this.truncateId ? this._truncate(id) : id;
+    const date = this.date;
+    const size = this.size;
     const changeType = this.changeType;
 
-    // Change-type icon
-    let changeIcon = '';
+    this.classList.toggle('selected', this.isSelected);
+    this.classList.toggle('current', this.isCurrent);
+
+    // Change-type icon — emitted only when a type was provided.
+    let changeIcon = null;
     if (changeType) {
-      const icon = changeType === 'added' ? '+'
-        : changeType === 'deleted' ? '\u2212'
-        : changeType === 'modified' ? '\u2022'
-        : '\u2013';
-      const colorClass = `snapshot-card-change-${changeType}`;
-      changeIcon = `<span class="snapshot-card-change-icon ${colorClass}">${icon}</span>`;
+      const ch = changeType === 'added' ? '+'
+        : changeType === 'deleted' ? '−'
+        : changeType === 'modified' ? '•'
+        : '–';
+      changeIcon = span.class(`snapshot-card-change-icon snapshot-card-change-${changeType}`)(ch);
     }
 
-    // Badge
-    let badgeHtml = '';
+    // Badge variants
+    let badgeEl = null;
     if (this.isCurrent) {
-      badgeHtml = '<span class="snapshot-card-badge snapshot-card-badge-current">current</span>';
+      badgeEl = span.class('snapshot-card-badge snapshot-card-badge-current')('current');
     } else if (this.badge) {
-      badgeHtml = `<span class="snapshot-card-badge snapshot-card-badge-muted">${this._esc(this.badge)}</span>`;
+      badgeEl = span.class('snapshot-card-badge snapshot-card-badge-muted')(this.badge);
     }
 
-    // Top-right actions (delete button)
-    let actionsHtml = '';
-    if (this.isDeletable) {
-      actionsHtml = `
-        <div class="snapshot-card-actions">
-          <aeor-confirm-button class="snapshot-card-delete-btn confirm-button-danger" label="Delete" confirmed-text="Deleted!" duration="1000"></aeor-confirm-button>
-        </div>`;
-    }
+    // Top-right delete action
+    const deleteAction = this.isDeletable
+      ? div.class('snapshot-card-actions')(
+          aeorConfirmButton
+            .class('snapshot-card-delete-btn confirm-button-danger')
+            .label('Delete')
+            .confirmedText('Deleted!')
+            .duration('1000')(),
+        )
+      : null;
 
     // Bottom restore button
-    let restoreHtml = '';
-    if (this.isRestorable) {
-      restoreHtml = `
-        <div class="snapshot-card-bottom">
-          <aeor-confirm-button class="snapshot-card-restore-btn confirm-button-restore" label="Restore" confirmed-text="Restored!" duration="1000"></aeor-confirm-button>
-        </div>`;
-    }
+    const restoreBottom = this.isRestorable
+      ? div.class('snapshot-card-bottom')(
+          aeorConfirmButton
+            .class('snapshot-card-restore-btn confirm-button-restore')
+            .label('Restore')
+            .confirmedText('Restored!')
+            .duration('1000')(),
+        )
+      : null;
 
-    // Meta line (date + optional size)
-    let metaHtml = '';
-    if (date || size) {
-      const metaText = date + (size ? ' \u00B7 ' + size : '');
-      metaHtml = `<div class="snapshot-card-meta">${metaText}</div>`;
-    }
+    // Meta (date · size)
+    const metaEl = (date || size)
+      ? div.class('snapshot-card-meta')(date + (size ? ' · ' + size : ''))
+      : null;
 
-    // Selection class
-    if (this.isSelected) {
-      this.classList.add('selected');
-    } else {
-      this.classList.remove('selected');
-    }
+    // The copy-id icon span — its textContent flips to ✓ briefly via _bindEvents.
+    const copyBtn = span.class('snapshot-card-copy-btn').title('Copy ID')('📋');
 
-    // Current class
-    if (this.isCurrent) {
-      this.classList.add('current');
-    } else {
-      this.classList.remove('current');
-    }
+    this.textContent = '';
+    const tree = div.context(this)(
+      div.class('snapshot-card-top')(
+        div.class('snapshot-card-info')(
+          div.class('snapshot-card-name')(
+            changeIcon,
+            name,
+            badgeEl,
+          ),
+          div.class('snapshot-card-id')(
+            span.title(id)(displayId),
+            copyBtn,
+          ),
+          metaEl,
+        ),
+        deleteAction,
+      ),
+      restoreBottom,
+    ).build(document);
 
-    this.innerHTML = `
-      <div class="snapshot-card-top">
-        <div class="snapshot-card-info">
-          <div class="snapshot-card-name">
-            ${changeIcon}${name}
-            ${badgeHtml}
-          </div>
-          <div class="snapshot-card-id">
-            <span title="${this._esc(id)}">${displayId}</span>
-            <span class="snapshot-card-copy-btn" title="Copy ID">&#128203;</span>
-          </div>
-          ${metaHtml}
-        </div>
-        ${actionsHtml}
-      </div>
-      ${restoreHtml}`;
-
+    this.appendChild(tree);
     this._bindEvents();
   }
 
   // ── Events ────────────────────────────────────────────────────────────
 
   _bindEvents() {
-    // Copy ID
     const copyBtn = this.querySelector('.snapshot-card-copy-btn');
     if (copyBtn) {
-      copyBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
+      copyBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
         const id = this.snapshotId;
         if (!id) return;
         navigator.clipboard.writeText(id).then(() => {
-          copyBtn.textContent = '\u2713';
-          setTimeout(() => { copyBtn.textContent = '\uD83D\uDCCB'; }, 1500);
+          copyBtn.textContent = '✓';
+          setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
         }).catch(() => {});
         this.dispatchEvent(new CustomEvent('snapshot-copy-id', {
           bubbles: true, detail: { id },
@@ -164,11 +164,10 @@ class AeorSnapshotCard extends HTMLElement {
       });
     }
 
-    // Restore
     const restoreBtn = this.querySelector('.snapshot-card-restore-btn');
     if (restoreBtn) {
-      restoreBtn.addEventListener('confirm', (e) => {
-        e.stopPropagation();
+      restoreBtn.addEventListener('confirm', (event) => {
+        event.stopPropagation();
         this.dispatchEvent(new CustomEvent('snapshot-restore', {
           bubbles: true,
           detail: { name: this.snapshotName, id: this.snapshotId },
@@ -176,11 +175,10 @@ class AeorSnapshotCard extends HTMLElement {
       });
     }
 
-    // Delete
     const deleteBtn = this.querySelector('.snapshot-card-delete-btn');
     if (deleteBtn) {
-      deleteBtn.addEventListener('confirm', (e) => {
-        e.stopPropagation();
+      deleteBtn.addEventListener('confirm', (event) => {
+        event.stopPropagation();
         this.dispatchEvent(new CustomEvent('snapshot-delete', {
           bubbles: true,
           detail: { name: this.snapshotName, id: this.snapshotId },
@@ -191,18 +189,11 @@ class AeorSnapshotCard extends HTMLElement {
 
   // ── Utilities ─────────────────────────────────────────────────────────
 
-  _esc(str) {
-    if (!str) return '';
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-  }
-
   _truncate(id) {
-    if (!id) return '\u2014';
+    if (!id) return '—';
     const str = String(id);
-    if (str.length <= 16) return this._esc(str);
-    return this._esc(str.slice(0, 8)) + '\u2026' + this._esc(str.slice(-8));
+    if (str.length <= 16) return str;
+    return str.slice(0, 8) + '…' + str.slice(-8);
   }
 }
 

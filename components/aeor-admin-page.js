@@ -1,7 +1,11 @@
 'use strict';
 
-import './aeor-modal.js';
-import './aeor-confirm-button.js';
+import { elements } from '../../aeor/elements.js';
+import '../../aeor/components/aeor-modal.js';
+import '../../aeor/components/aeor-confirm-button.js';
+
+const { div, h1, input, button, span } = elements;
+const aeorModal = elements['aeor-modal'];
 
 /**
  * AeorAdminPage — Base class for admin list pages (Users, Groups, Keys, Snapshots).
@@ -27,7 +31,26 @@ import './aeor-confirm-button.js';
  *   - onPostCreate(result)         — custom post-create behavior
  *   - updateCardSelection(el, sel) — custom selection visuals
  *   - onItemsLoaded(items)         — post-fetch hook (e.g. async name resolution)
+ *
+ * Subclass contract for `renderCard`, `renderCreateForm`,
+ * `renderEditForm`, and `getActionButtons`: each returns either
+ *   - a `Node` (Element / DocumentFragment), OR
+ *   - an `Array` of Nodes (mostly for getActionButtons), OR
+ *   - `null` / nothing when there's nothing to render.
+ * Helper `_appendContent` below is the single funnel.
  */
+function _appendContent(target, content) {
+  if (content == null || content === '') return;
+  if (content instanceof Node) {
+    target.appendChild(content);
+    return;
+  }
+  if (Array.isArray(content)) {
+    for (const item of content) _appendContent(target, item);
+    return;
+  }
+  // Unknown return type — silently ignore rather than throw.
+}
 export class AeorAdminPage extends HTMLElement {
   constructor() {
     super();
@@ -61,11 +84,7 @@ export class AeorAdminPage extends HTMLElement {
   onItemsLoaded(items) { /* default: no-op */ }
 
   updateCardSelection(cardEl, isSelected) {
-    if (isSelected) {
-      cardEl.classList.add('selected');
-    } else {
-      cardEl.classList.remove('selected');
-    }
+    cardEl.classList.toggle('selected', isSelected);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────
@@ -78,44 +97,47 @@ export class AeorAdminPage extends HTMLElement {
   // ── Render ─────────────────────────────────────────────────────────
 
   _render() {
-    this.innerHTML = `
-      <div class="page-header">
-        <h1 class="page-title">${this._esc(this.title)}</h1>
-        ${this.showCreateButton ? '<button class="admin-create-btn primary">Create</button>' : ''}
-      </div>
-      <div class="admin-search-wrap">
-        <input class="form-input admin-search" type="text" placeholder="Search...">
-      </div>
-      <div class="admin-action-bar invisible"></div>
-      <div class="admin-error"></div>
-      <div class="admin-list"></div>
-    `;
+    this.textContent = '';
+    this.appendChild(
+      div(
+        div.class('page-header')(
+          h1.class('page-title')(this.title),
+          this.showCreateButton
+            ? button.class('admin-create-btn primary')('Create')
+            : null,
+        ),
+        div.class('admin-search-wrap')(
+          input.class('form-input admin-search').type('text').placeholder('Search...')(),
+        ),
+        div.class('admin-action-bar invisible')(),
+        div.class('admin-error')(),
+        div.class('admin-list')(),
+      ).build(document),
+    );
 
-    // Search
-    this.querySelector('.admin-search').addEventListener('input', (e) => {
-      this._searchQuery = e.target.value.trim().toLowerCase();
+    this.querySelector('.admin-search').addEventListener('input', (event) => {
+      this._searchQuery = event.target.value.trim().toLowerCase();
       this._renderList();
     });
 
-    // Create button
     const createBtn = this.querySelector('.admin-create-btn');
     if (createBtn) {
       createBtn.addEventListener('click', () => this._openCreateModal());
     }
 
-    // Keyboard shortcuts
-    this._keydownHandler = (e) => {
-      // Don't capture when search input is focused
+    this._keydownHandler = (event) => {
       if (document.activeElement === this.querySelector('.admin-search')) return;
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault();
+      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+        event.preventDefault();
         const visible = this._getVisibleItems();
         for (const item of visible) this._selectedIds.add(this.getItemId(item));
-        if (visible.length > 0) this._lastSelectedAnchor = this.getItemId(visible[visible.length - 1]);
+        if (visible.length > 0) {
+          this._lastSelectedAnchor = this.getItemId(visible[visible.length - 1]);
+        }
         this._updateSelectionVisuals();
         this._updateActionBar();
-      } else if (e.key === 'Escape') {
+      } else if (event.key === 'Escape') {
         this._clearSelection();
       }
     };
@@ -162,30 +184,43 @@ export class AeorAdminPage extends HTMLElement {
     if (!listEl || !errorEl) return;
 
     // Error
+    errorEl.textContent = '';
     if (this._error) {
-      errorEl.innerHTML = `<div class="alert alert-error">${this._esc(this._error)}</div>`;
-    } else {
-      errorEl.innerHTML = '';
+      errorEl.appendChild(
+        div.class('alert alert-error')(this._error).build(document),
+      );
     }
 
     // Loading
     if (this._loading && this._items.length === 0) {
-      listEl.innerHTML = '<div class="admin-empty">&nbsp;</div>';
+      listEl.textContent = '';
+      listEl.appendChild(div.class('admin-empty')(' ').build(document));
       return;
     }
 
     const visible = this._getVisibleItems();
 
     if (visible.length === 0) {
-      listEl.innerHTML = `<div class="admin-empty">${this._searchQuery ? 'No matches found.' : 'No items.'}</div>`;
+      listEl.textContent = '';
+      listEl.appendChild(
+        div.class('admin-empty')(
+          this._searchQuery ? 'No matches found.' : 'No items.',
+        ).build(document),
+      );
       return;
     }
 
-    listEl.innerHTML = visible.map((item) => {
+    listEl.textContent = '';
+    for (const item of visible) {
       const id = this.getItemId(item);
-      const isSelected = this._selectedIds.has(id);
-      return `<div class="admin-card${isSelected ? ' selected' : ''}" data-item-id="${this._escAttr(String(id))}">${this.renderCard(item)}</div>`;
-    }).join('');
+      const isSelected = this._selectedIds.has(String(id));
+      const cardEl = div
+        .class(isSelected ? 'admin-card selected' : 'admin-card')
+        .dataItemId(String(id))()
+        .build(document);
+      _appendContent(cardEl, this.renderCard(item));
+      listEl.appendChild(cardEl);
+    }
 
     this._bindCardEvents(listEl, visible);
   }
@@ -194,16 +229,15 @@ export class AeorAdminPage extends HTMLElement {
 
   _bindCardEvents(listEl, visibleItems) {
     listEl.querySelectorAll('.admin-card').forEach((cardEl) => {
-      cardEl.addEventListener('click', (e) => {
-        // Ignore clicks on buttons/inputs inside the card
-        if (e.target.closest('button') || e.target.closest('aeor-confirm-button') ||
-            e.target.closest('input') || e.target.closest('a')) return;
+      cardEl.addEventListener('click', (event) => {
+        if (event.target.closest('button') || event.target.closest('aeor-confirm-button') ||
+            event.target.closest('input') || event.target.closest('a')) return;
 
         const itemId = cardEl.dataset.itemId;
         const index = visibleItems.findIndex((item) => String(this.getItemId(item)) === itemId);
         const isMobile = window.innerWidth <= 768;
-        const isCtrl = isMobile || e.ctrlKey || e.metaKey;
-        const isShift = !isMobile && e.shiftKey;
+        const isCtrl = isMobile || event.ctrlKey || event.metaKey;
+        const isShift = !isMobile && event.shiftKey;
 
         if (!isCtrl && !isShift) {
           this._selectedIds.clear();
@@ -260,30 +294,39 @@ export class AeorAdminPage extends HTMLElement {
     const bar = this.querySelector('.admin-action-bar');
     if (!bar) return;
 
+    bar.textContent = '';
+
     if (this._selectedIds.size === 0) {
-      bar.innerHTML = '&nbsp;';
+      bar.appendChild(document.createTextNode(' '));
       bar.classList.add('invisible');
       return;
     }
 
     const selectedItems = this._getSelectedItems();
 
-    bar.innerHTML = `
-      <span class="admin-sel-count">${this._selectedIds.size} selected</span>
-      ${this.shouldShowEditButton(selectedItems) ? '<button class="secondary small admin-edit-btn">Edit</button>' : ''}
-      ${this.getActionButtons(selectedItems)}
-      <button class="secondary small admin-clear-btn">Clear Selection</button>
-    `;
+    // Build the static parts via the element-builder.
+    bar.appendChild(
+      span.class('admin-sel-count')(`${this._selectedIds.size} selected`).build(document),
+    );
+    if (this.shouldShowEditButton(selectedItems)) {
+      bar.appendChild(
+        button.class('secondary small admin-edit-btn')('Edit').build(document),
+      );
+    }
+
+    _appendContent(bar, this.getActionButtons(selectedItems));
+
+    bar.appendChild(
+      button.class('secondary small admin-clear-btn')('Clear Selection').build(document),
+    );
     bar.classList.remove('invisible');
 
-    // Bind action bar events
     const editBtn = bar.querySelector('.admin-edit-btn');
     if (editBtn) editBtn.addEventListener('click', () => this._openEditModal(selectedItems));
 
     const clearBtn = bar.querySelector('.admin-clear-btn');
     if (clearBtn) clearBtn.addEventListener('click', () => this._clearSelection());
 
-    // Let subclass bind its custom action buttons
     this._bindActionBarEvents(bar, selectedItems);
   }
 
@@ -293,24 +336,24 @@ export class AeorAdminPage extends HTMLElement {
   // ── Create modal ───────────────────────────────────────────────────
 
   _openCreateModal() {
-    const formHtml = this.renderCreateForm();
-    const modal = document.createElement('aeor-modal');
-    modal.setAttribute('title', `Create ${this.title.replace(/s$/, '')}`);
-    modal.innerHTML = `
-      <div class="admin-modal-form">
-        ${formHtml}
-        <div class="modal-footer-actions">
-          <button class="secondary small admin-modal-cancel">Cancel</button>
-          <button class="primary small admin-modal-submit">Create</button>
-        </div>
-      </div>
-    `;
+    const modal = aeorModal.title(`Create ${this.title.replace(/s$/, '')}`)().build(document);
 
+    const formContainer = div.class('admin-modal-form')().build(document);
+    _appendContent(formContainer, this.renderCreateForm());
+    formContainer.appendChild(
+      div.class('modal-footer-actions')(
+        button.class('secondary small admin-modal-cancel')('Cancel'),
+        button.class('primary small admin-modal-submit')('Create'),
+      ).build(document),
+    );
+    modal.appendChild(formContainer);
+
+    // Universal aeor-modal auto-displays on appendChild (connectedCallback
+    // builds the DOM) and dispatches a 'close' event when dismissed via
+    // backdrop / Escape / close button — no explicit .open()/.close().
     document.body.appendChild(modal);
-    modal.open();
 
     modal.querySelector('.admin-modal-cancel').addEventListener('click', () => {
-      modal.close();
       modal.remove();
     });
 
@@ -323,7 +366,6 @@ export class AeorAdminPage extends HTMLElement {
         const result = await this.submitCreate(modal);
         this.onPostCreate(result);
         if (!this._postCreateHandled) {
-          modal.close();
           modal.remove();
           if (window.aeorToast) window.aeorToast('Created successfully', 'success');
           await this._loadItems();
@@ -342,29 +384,28 @@ export class AeorAdminPage extends HTMLElement {
   // ── Edit modal ─────────────────────────────────────────────────────
 
   _openEditModal(items) {
-    const formHtml = this.renderEditForm(items);
     const noun = this.title.replace(/s$/, '');
     const modalTitle = items.length === 1
       ? `Edit ${noun}`
       : `Edit ${items.length} ${this.title}`;
 
-    const modal = document.createElement('aeor-modal');
-    modal.setAttribute('title', modalTitle);
-    modal.innerHTML = `
-      <div class="admin-modal-form">
-        ${formHtml}
-        <div class="modal-footer-actions">
-          <button class="secondary small admin-modal-cancel">Cancel</button>
-          <button class="primary small admin-modal-submit">Save</button>
-        </div>
-      </div>
-    `;
+    const modal = aeorModal.title(modalTitle)().build(document);
 
+    const formContainer = div.class('admin-modal-form')().build(document);
+    _appendContent(formContainer, this.renderEditForm(items));
+    formContainer.appendChild(
+      div.class('modal-footer-actions')(
+        button.class('secondary small admin-modal-cancel')('Cancel'),
+        button.class('primary small admin-modal-submit')('Save'),
+      ).build(document),
+    );
+    modal.appendChild(formContainer);
+
+    // See note in _openCreateModal — universal aeor-modal has no
+    // explicit open()/close(); appendChild shows it, remove() hides it.
     document.body.appendChild(modal);
-    modal.open();
 
     modal.querySelector('.admin-modal-cancel').addEventListener('click', () => {
-      modal.close();
       modal.remove();
     });
 
@@ -375,7 +416,6 @@ export class AeorAdminPage extends HTMLElement {
       saveBtn.textContent = 'Saving...';
       try {
         await this.submitEdit(items, modal);
-        modal.close();
         modal.remove();
         if (window.aeorToast) window.aeorToast('Updated successfully', 'success');
         this._clearSelection();
@@ -388,18 +428,5 @@ export class AeorAdminPage extends HTMLElement {
     });
 
     modal.addEventListener('close', () => modal.remove());
-  }
-
-  // ── Utilities ──────────────────────────────────────────────────────
-
-  _esc(str) {
-    if (!str) return '';
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-  }
-
-  _escAttr(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 }

@@ -1,5 +1,9 @@
 'use strict';
 
+import { elements } from '../../aeor/elements.js';
+
+const { div, button } = elements;
+
 /**
  * <aeor-crudlify> — Toggle component for crudlify permission flags.
  *
@@ -52,28 +56,36 @@ export class AeorCrudlify extends HTMLElement {
   }
 
   render() {
-    this.innerHTML = `<div class="crudlify-row">${
-      CRUDLIFY_FLAGS.map((flag, i) => {
-        const active = this._flags[i] ? 'active' : '';
-        return `<button type="button" class="crudlify-flag ${active}" data-idx="${i}" title="${flag.label}">${flag.char.toUpperCase()}</button>`;
-      }).join('')
-    }</div>`;
+    this.textContent = '';
 
-    this.querySelectorAll('.crudlify-flag').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (e.shiftKey) {
-          for (let i = 0; i < 8; i++) this._flags[i] = !this._flags[i];
-          this.querySelectorAll('.crudlify-flag').forEach((b, i) => {
-            b.classList.toggle('active', this._flags[i]);
-          });
-        } else {
-          const idx = parseInt(btn.dataset.idx);
-          this._flags[idx] = !this._flags[idx];
-          btn.classList.toggle('active', this._flags[idx]);
-        }
-      });
-    });
+    const onClick = (event) => {
+      event.preventDefault();
+      const btn = event.currentTarget;
+      if (event.shiftKey) {
+        for (let i = 0; i < 8; i++) this._flags[i] = !this._flags[i];
+        this.querySelectorAll('.crudlify-flag').forEach((b, i) => {
+          b.classList.toggle('active', this._flags[i]);
+        });
+      } else {
+        const idx = parseInt(btn.dataset.idx);
+        this._flags[idx] = !this._flags[idx];
+        btn.classList.toggle('active', this._flags[idx]);
+      }
+    };
+
+    const tree = div.class('crudlify-row')(
+      ...CRUDLIFY_FLAGS.map((flag, i) => {
+        const cls = this._flags[i] ? 'crudlify-flag active' : 'crudlify-flag';
+        return button
+          .type('button')
+          .class(cls)
+          .dataIdx(String(i))
+          .title(flag.label)
+          .onClick(onClick)(flag.char.toUpperCase());
+      }),
+    ).build(document);
+
+    this.appendChild(tree);
   }
 }
 

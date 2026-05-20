@@ -1,5 +1,9 @@
 'use strict';
 
+import { elements } from '../../../aeor/elements.js';
+
+const { div, iframe } = elements;
+
 class AeorPreviewPdf extends HTMLElement {
   constructor() {
     super();
@@ -7,7 +11,8 @@ class AeorPreviewPdf extends HTMLElement {
   }
 
   connectedCallback() {
-    this.innerHTML = '<div class="loading">Loading PDF...</div>';
+    this.textContent = '';
+    this.appendChild(div.class('loading')('Loading PDF...').build(document));
   }
 
   async load() {
@@ -15,16 +20,20 @@ class AeorPreviewPdf extends HTMLElement {
     if (newSrc === this._currentSrc) return;
     this._currentSrc = newSrc;
 
+    this.textContent = '';
+
     if (!newSrc) {
-      this.innerHTML = '<div class="preview-binary">No source URL</div>';
+      this.appendChild(div.class('preview-binary')('No source URL').build(document));
       return;
     }
 
-    this.innerHTML = `<iframe
-      src="${newSrc}"
-      style="width: 100%; height: 100%; border: none; border-radius: 4px; background: #fff;"
-      title="PDF Preview"
-    ></iframe>`;
+    this.appendChild(
+      iframe
+        .src(newSrc)
+        .title('PDF Preview')
+        .style('width:100%;height:100%;border:none;border-radius:4px;background:#fff')()
+        .build(document),
+    );
   }
 }
 

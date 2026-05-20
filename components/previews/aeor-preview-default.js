@@ -1,19 +1,43 @@
 'use strict';
 
+import { elements } from '../../../aeor/elements.js';
 import { formatBytes } from '../../utils.js';
+
+const { div, svg, path, polyline } = elements;
+
+// Document-outline icon — vector replaces the 📄 emoji which the Tauri
+// webview was rendering as a tofu glyph. Matches the grid view's
+// generic "file" icon (see aeor-file-browser-base.js _FILE_ICONS.file).
+function _binaryIcon() {
+  // The element-builder kebab-cases JS-camelCase attribute names
+  // (strokeWidth → stroke-width), except for the SVG_CAMEL_ATTRIBUTES
+  // set which preserves camelCase (viewBox stays viewBox).
+  return svg
+    .width('64').height('64').viewBox('0 0 24 24')
+    .fill('none')
+    .stroke('currentColor')
+    .strokeWidth('1.5')
+    .strokeLinecap('round')
+    .strokeLinejoin('round')(
+      path.d('M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z')(),
+      polyline.points('14 2 14 8 20 8')(),
+    );
+}
 
 class AeorPreviewDefault extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = `
-      <div class="preview-binary-info">
-        <div class="preview-binary-icon">\uD83D\uDCC4</div>
-        <div class="preview-binary-details">
-          <div class="preview-binary-name"></div>
-          <div class="preview-binary-meta preview-binary-type"></div>
-          <div class="preview-binary-meta preview-binary-size"></div>
-        </div>
-      </div>
-    `;
+    this.textContent = '';
+
+    const root = div.class('preview-binary-info')(
+      div.class('preview-binary-icon')(_binaryIcon()),
+      div.class('preview-binary-details')(
+        div.class('preview-binary-name')(),
+        div.class('preview-binary-meta preview-binary-type')(),
+        div.class('preview-binary-meta preview-binary-size')(),
+      ),
+    ).build(document);
+
+    this.appendChild(root);
   }
 
   load() {

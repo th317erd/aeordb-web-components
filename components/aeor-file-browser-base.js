@@ -1,40 +1,102 @@
 'use strict';
 
+import { elements } from '../../aeor/elements.js';
 import {
   formatSize, formatDate, fileIcon, fileExtension,
   escapeHtml, escapeAttr, isImageFile, isVideoFile, isAudioFile,
   flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
-import './aeor-modal.js';
-import './aeor-confirm-button.js';
-import './aeor-info-box.js';
-import './aeor-tab-view.js';
+import '../../aeor/components/aeor-modal.js';
+import '../../aeor/components/aeor-confirm-button.js';
+import '../../aeor/components/aeor-info-box.js';
+import '../../aeor/components/aeor-tab-view.js';
 import './aeor-snapshot-card.js';
 
-// File type icon SVGs for grid view thumbnails (non-image files).
-// Each returns an SVG string sized for the grid card icon area.
+const { div, span, button, input, label, h2, h3, ul, li, table, thead, tbody, tr, th, td, canvas } = elements;
+const aeorModal = elements['aeor-modal'];
+const aeorConfirmButton = elements['aeor-confirm-button'];
+
+/** Subclass hook return types (previewActions, directoryPreviewActions)
+ *  may be a Node, an Array of Nodes, or an HTML string (legacy contract
+ *  still used by aeor-file-browser.js and aeor-file-browser-portal.js).
+ *  This helper funnels all three into appendChild calls on a target.
+ *  When every subclass returns Nodes the string branch can be removed
+ *  along with all CONTRACT-INJECTION comments below. */
+function _appendHook(target, content) {
+  if (content == null || content === '') return;
+  if (content instanceof Node) { target.appendChild(content); return; }
+  if (Array.isArray(content)) { for (const c of content) _appendHook(target, c); return; }
+  if (typeof content === 'string') {
+    const carrier = document.createElement('template');
+    carrier.innerHTML = content;
+    target.appendChild(carrier.content);
+    return;
+  }
+}
+
+// File type icon factories for grid view thumbnails (non-image files).
+// Each returns a fresh element-builder DEFINITION (not a built DOM Node)
+// so callers can either pass them as children to another element-builder
+// call or build them into a Node with `.build(document)`.
+const { svg, path, polyline, rect, circle, line } = elements;
+const _ICON_TEXT = elements.text;
+
+function _svgIcon(strokeColor, ...children) {
+  return svg
+    .width('48').height('48').viewBox('0 0 24 24')
+    .fill('none').stroke(strokeColor).strokeWidth('1.5')
+    .strokeLinecap('round').strokeLinejoin('round')(...children);
+}
+
 const _FILE_ICONS = {
-  folder: '<span>&#128193;</span>',
-  video: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M10 8l6 4-6 4z"/></svg>',
-  audio: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
-  pdf: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="8" y="17" font-size="6" fill="#ef4444" stroke="none" font-weight="bold">PDF</text></svg>',
-  code: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-  text: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
-  archive: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>',
-  file: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  folder: () => span('📁'),
+  video: () => _svgIcon('#8b5cf6',
+    rect.x('2').y('2').width('20').height('20').rx('2.18')(),
+    path.d('M10 8l6 4-6 4z')(),
+  ),
+  audio: () => _svgIcon('#06b6d4',
+    path.d('M9 18V5l12-2v13')(),
+    circle.cx('6').cy('18').r('3')(),
+    circle.cx('18').cy('16').r('3')(),
+  ),
+  pdf: () => _svgIcon('#ef4444',
+    path.d('M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z')(),
+    polyline.points('14 2 14 8 20 8')(),
+    _ICON_TEXT.x('8').y('17').fontSize('6').fill('#ef4444').stroke('none').fontWeight('bold')('PDF'),
+  ),
+  code: () => _svgIcon('#3fb950',
+    polyline.points('16 18 22 12 16 6')(),
+    polyline.points('8 6 2 12 8 18')(),
+  ),
+  text: () => _svgIcon('#8b949e',
+    path.d('M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z')(),
+    polyline.points('14 2 14 8 20 8')(),
+    line.x1('16').y1('13').x2('8').y2('13')(),
+    line.x1('16').y1('17').x2('8').y2('17')(),
+    line.x1('10').y1('9').x2('8').y2('9')(),
+  ),
+  archive: () => _svgIcon('#d29922',
+    polyline.points('21 8 21 21 3 21 3 8')(),
+    rect.x('1').y('3').width('22').height('5')(),
+    line.x1('10').y1('12').x2('14').y2('12')(),
+  ),
+  file: () => _svgIcon('#8b949e',
+    path.d('M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z')(),
+    polyline.points('14 2 14 8 20 8')(),
+  ),
 };
 
 function _fileTypeIcon(entry) {
-  if (entry.entry_type === 3) return _FILE_ICONS.folder;
-  if (entry.entry_type === 8) return _FILE_ICONS.file; // symlink
+  if (entry.entry_type === 3) return _FILE_ICONS.folder();
+  if (entry.entry_type === 8) return _FILE_ICONS.file(); // symlink
   const ext = fileExtension(entry.name);
-  if (isVideoFile(entry.name)) return _FILE_ICONS.video;
-  if (isAudioFile(entry.name)) return _FILE_ICONS.audio;
-  if (ext === 'pdf') return _FILE_ICONS.pdf;
-  if (['zip','tar','gz','bz2','7z','rar','xz','zst'].includes(ext)) return _FILE_ICONS.archive;
-  if (['js','ts','py','rs','go','java','c','cpp','h','rb','php','sh','css','html','xml','json','yaml','yml','toml','md','sql'].includes(ext)) return _FILE_ICONS.code;
-  if (['txt','log','csv','tsv','ini','cfg','conf'].includes(ext)) return _FILE_ICONS.text;
-  return _FILE_ICONS.file;
+  if (isVideoFile(entry.name)) return _FILE_ICONS.video();
+  if (isAudioFile(entry.name)) return _FILE_ICONS.audio();
+  if (ext === 'pdf') return _FILE_ICONS.pdf();
+  if (['zip','tar','gz','bz2','7z','rar','xz','zst'].includes(ext)) return _FILE_ICONS.archive();
+  if (['js','ts','py','rs','go','java','c','cpp','h','rb','php','sh','css','html','xml','json','yaml','yml','toml','md','sql'].includes(ext)) return _FILE_ICONS.code();
+  if (['txt','log','csv','tsv','ini','cfg','conf'].includes(ext)) return _FILE_ICONS.text();
+  return _FILE_ICONS.file();
 }
 
 // Content types that should be routed to an existing preview component
@@ -50,6 +112,43 @@ const PREVIEW_OVERRIDES = {
   'application/toml':       'aeor-preview-text',
   'application/pdf':        'aeor-preview-pdf',
 };
+
+/** Build a canvas sized to fit inside a thumbnail box. Internal pixels
+ *  match the device pixel ratio for crisp output; CSS size matches the
+ *  box so layout doesn't shift. */
+function _makeThumbnailCanvas(boxEl) {
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const displayW = Math.max(1, boxEl.clientWidth  || 140);
+  const displayH = Math.max(1, boxEl.clientHeight || 100);
+  const intrinsicW = Math.round(displayW * dpr);
+  const intrinsicH = Math.round(displayH * dpr);
+  const canvasEl = canvas
+    .width(String(intrinsicW))
+    .height(String(intrinsicH))()
+    .build(document);
+  canvasEl.style.width  = displayW + 'px';
+  canvasEl.style.height = displayH + 'px';
+  return canvasEl;
+}
+
+/** Draw `source` (HTMLImageElement, ImageBitmap, HTMLVideoElement) into
+ *  `canvas`, preserving aspect ratio. Letterboxes if the source's aspect
+ *  doesn't match the canvas. */
+function _drawCovered(canvas, source, srcWidth, srcHeight) {
+  const ctx = canvas.getContext('2d');
+  const sw = srcWidth  || source.width  || source.videoWidth  || 1;
+  const sh = srcHeight || source.height || source.videoHeight || 1;
+  const ratio = Math.min(canvas.width / sw, canvas.height / sh);
+  const drawW = sw * ratio;
+  const drawH = sh * ratio;
+  ctx.drawImage(
+    source,
+    (canvas.width  - drawW) / 2,
+    (canvas.height - drawH) / 2,
+    drawW,
+    drawH,
+  );
+}
 
 async function loadPreviewComponent(contentType) {
   if (!contentType) return 'aeor-preview-default';
@@ -257,7 +356,7 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   renderNoTabContent() {
-    return '<div class="empty-state">No tabs open.</div>';
+    return div.class('empty-state')('No tabs open.').build(document);
   }
 
   rootLabel() {
@@ -367,29 +466,43 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   render() {
-    let html = '<div class="page-header"><h1 class="page-title">Files</h1></div>';
+    this.textContent = '';
+
+    this.appendChild(
+      div.class('page-header')(
+        h2.class('page-title')('Files'),
+      ).build(document),
+    );
 
     if (this._tabs.length > 0) {
-      html += this._renderTabBar();
+      this.appendChild(this._renderTabBar());
     }
 
     if (!this._active_tab_id) {
-      html += this.renderNoTabContent();
-      this.innerHTML = html;
+      _appendHook(this, this.renderNoTabContent());
       this._bindShellEvents();
       return;
     }
 
-    // Render all tab content containers — only the active one is visible
+    // Render all tab content containers — only the active one is visible.
+    // Build via element-builder for the static wrapper, then appendChild
+    // the already-built child nodes (the chain returns DOM Nodes; the
+    // element-builder stringifies any Node passed as a child).
     for (const tab of this._tabs) {
       const isActive = (tab.id === this._active_tab_id);
-      html += `<div class="tab-content${isActive ? '' : ' hidden'}" id="tab-content-${tab.id}">`;
-      html += `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>`;
-      html += this._renderPreviewPanel(tab);
-      html += '</div>';
+      const tabContent = div
+        .class(isActive ? 'tab-content' : 'tab-content hidden')
+        .id(`tab-content-${tab.id}`)()
+        .build(document);
+      const listingArea = div.class('tab-listing-area')().build(document);
+      for (const node of this._renderDirectoryViewFor(tab)) {
+        listingArea.appendChild(node);
+      }
+      tabContent.appendChild(listingArea);
+      tabContent.appendChild(this._renderPreviewPanel(tab));
+      this.appendChild(tabContent);
     }
 
-    this.innerHTML = html;
     this._bindShellEvents();
     // Bind events for ALL tab containers (not just active) since render()
     // rebuilds everything — inactive tabs need handlers for when switched to.
@@ -400,7 +513,9 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _renderTabBar() {
-    return '<aeor-tab-view closable new-tab id="file-tab-view"></aeor-tab-view>';
+    return elements['aeor-tab-view']
+      .closable('').newTab('').id('file-tab-view')()
+      .build(document);
   }
 
   _hydrateTabView() {
@@ -445,120 +560,154 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _getConfigActions(tab) {
     const path = tab.path || '';
-    if (!path.includes('/.aeordb-config'))
-      return '';
+    if (!path.includes('/.aeordb-config')) return null;
 
-    return `
-      <button class="secondary small config-action-btn" data-action="add-index">Add Index</button>
-      <button class="secondary small config-action-btn" data-action="add-parser">Add Parser</button>
-      <button class="secondary small config-action-btn" data-action="cors-config">CORS Config</button>
-    `;
+    return [
+      button.class('secondary small config-action-btn').dataAction('add-index')('Add Index'),
+      button.class('secondary small config-action-btn').dataAction('add-parser')('Add Parser'),
+      button.class('secondary small config-action-btn').dataAction('cors-config')('CORS Config'),
+    ];
   }
 
   _renderDirectoryViewFor(tab) {
     const viewMode    = tab.view_mode || 'list';
-    const breadcrumbs = this._renderBreadcrumbs(tab);
     const configActions = this._getConfigActions(tab);
-    const configBar = (configActions) ? `<div class="config-actions-bar">${configActions}</div>` : '';
-    const header = `
-      <div class="page-header">
-        ${breadcrumbs}
-        <div class="page-header-actions">
-          ${configBar}
-          <button class="secondary small header-paste-btn hidden">Paste</button>
-          ${this._isRoot() ? `<button class="success small snapshot-button">Snapshot</button>` : ''}
-          ${this._hasPermission('c') ? `
-          <button class="secondary small new-folder-button">New Folder</button>
-          <button class="primary small upload-button">Upload</button>
-          <input type="file" class="upload-input hidden" multiple>` : ''}
-        </div>
-      </div>
-    `;
 
-    // Unified toolbar: selection actions on left, view controls on right (always visible)
-    const extraActions = this.selectionActions(tab) || '';
-    const extraActionsRight = (this.selectionActionsRight ? this.selectionActionsRight(tab) : '') || '';
+    // Per-tab header (breadcrumbs + per-tab actions).
+    const headerActions = div.class('page-header-actions')(
+      configActions ? div.class('config-actions-bar')(...configActions) : null,
+      button.class('secondary small header-paste-btn hidden')('Paste'),
+      this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
+      this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
+      this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
+      this._hasPermission('c') ? input.type('file').class('upload-input hidden').multiple('')() : null,
+    );
+
+    const header = div.class('tab-header')().build(document);
+    const pageHeader = div.class('page-header')().build(document);
+    pageHeader.appendChild(this._renderBreadcrumbs(tab));
+    pageHeader.appendChild(headerActions.build(document));
+    header.appendChild(pageHeader);
+
+    // Unified toolbar: selection actions on left, view controls on right.
     // Selection bar buttons are always in the DOM. Visibility is toggled
     // dynamically in _updateSelectionVisual based on the actual permissions
     // of the selected entries — a mixed folder may contain both deletable
     // and non-deletable files, and the button should appear when ALL
     // selected items grant the action.
-    const toolbarHtml = `
-      <div class="selection-bar">
-        <div class="selection-actions-left invisible">
-          <span class="selection-count"></span>
-          <aeor-confirm-button class="selection-delete hidden" label="Delete Selected" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>
-          <button class="primary small selection-restore hidden">Undelete Selected</button>
-          ${extraActions}
-          <button class="secondary small selection-clear">Clear Selection</button>
-          ${extraActionsRight}
-        </div>
-        <div class="toolbar-right">
-          <button class="small ${this._showHidden ? 'primary' : 'secondary'} toggle-hidden-btn" title="${this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files'}">&#128065;</button>
-          <div class="view-toggle">
-            <button class="small ${(viewMode === 'list') ? 'primary' : 'secondary'}" data-view="list" title="List view">&#9776;</button>
-            <button class="small ${(viewMode === 'grid') ? 'primary' : 'secondary'}" data-view="grid" title="Grid view">&#9638;</button>
-          </div>
-        </div>
-      </div>
-    `;
+    const selectionLeft = div.class('selection-actions-left invisible')(
+      span.class('selection-count')(),
+      aeorConfirmButton
+        .class('selection-delete hidden')
+        .label('Delete Selected')
+        .confirmedText('Deleted!')
+        .duration('1000')
+        .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')(),
+      button.class('primary small selection-restore hidden')('Undelete Selected'),
+    ).build(document);
+    _appendHook(selectionLeft, this.selectionActions(tab));
+    selectionLeft.appendChild(
+      button.class('secondary small selection-clear')('Clear Selection').build(document),
+    );
+    if (this.selectionActionsRight) {
+      _appendHook(selectionLeft, this.selectionActionsRight(tab));
+    }
 
-    return `<div class="tab-header">${header}</div><div class="tab-toolbar">${toolbarHtml}</div><div class="tab-listing">${this._renderListingContent(tab, viewMode)}</div>`;
+    // Build toolbar in two layers: outer wrappers via element-builder,
+    // then appendChild the already-built `selectionLeft` (a DOM node)
+    // so it isn't stringified by the builder's child machinery.
+    const toolbarRight = div.class('toolbar-right')(
+      button
+        .class('small ' + (this._showHidden ? 'primary' : 'secondary') + ' toggle-hidden-btn')
+        .title(this._showHidden ? 'Hide hidden and deleted files' : 'Show hidden and deleted files')(
+          '👁',
+        ),
+      div.class('view-toggle')(
+        button.class('small ' + ((viewMode === 'list') ? 'primary' : 'secondary'))
+          .dataView('list').title('List view')('☰'),
+        button.class('small ' + ((viewMode === 'grid') ? 'primary' : 'secondary'))
+          .dataView('grid').title('Grid view')('▦'),
+      ),
+    ).build(document);
+
+    const selectionBar = div.class('selection-bar')().build(document);
+    selectionBar.appendChild(selectionLeft);
+    selectionBar.appendChild(toolbarRight);
+
+    const toolbar = div.class('tab-toolbar')().build(document);
+    toolbar.appendChild(selectionBar);
+
+    const listing = div.class('tab-listing')().build(document);
+    listing.appendChild(this._renderListingContent(tab, viewMode));
+
+    return [header, toolbar, listing];
   }
 
   _renderListingContent(tab, viewMode) {
     viewMode = viewMode || tab.view_mode || 'list';
 
     if (tab.loading && tab.entries.length === 0) {
-      return '<div class="empty-state">&nbsp;</div>';
+      return div.class('empty-state')(' ').build(document);
     }
 
     const visible = this._getVisibleEntries(tab);
 
     if (visible.length === 0 && tab.entries.length === 0) {
-      return '<div class="empty-state">This directory is empty.</div>';
+      return div.class('empty-state')('This directory is empty.').build(document);
     }
 
     if (visible.length === 0 && tab.entries.length > 0) {
-      return `<div class="empty-state">All ${tab.entries.length} items are hidden. Click the eye icon to show them.</div>`;
+      return div.class('empty-state')(
+        `All ${tab.entries.length} items are hidden. Click the eye icon to show them.`,
+      ).build(document);
     }
 
     const hiddenCount = tab.entries.length - visible.length;
     const countText = (tab.total != null)
       ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
       : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
-    const loadingMore = (tab.loading_more)
-      ? '<div class="scroll-loading">Loading more...</div>'
-      : '';
 
     const listing = (viewMode === 'grid')
       ? this._renderGridViewFor(tab, visible)
       : this._renderListViewFor(tab, visible);
 
-    return `${listing}<div class="entry-count">${countText}</div>${loadingMore}`;
+    // The chain expects a single Node \u2014 wrap listing + count + optional loading-more.
+    const frag = document.createDocumentFragment();
+    frag.appendChild(listing);
+    frag.appendChild(div.class('entry-count')(countText).build(document));
+    if (tab.loading_more) {
+      frag.appendChild(div.class('scroll-loading')('Loading more...').build(document));
+    }
+    return frag;
   }
 
   _renderPreviewPanel(tab) {
-    return `
-      <div class="preview-panel hidden" translate="no"${tab.preview_height ? ` style="height:${tab.preview_height}px"` : ''}>
-        <div class="preview-resize-handle"></div>
-        <div class="preview-header">
-          <input type="text" class="preview-title" spellcheck="false">
-          <div class="preview-actions"></div>
-        </div>
-        <div class="preview-inner">
-          <div class="preview-main">
-            <div class="preview-content"></div>
-            <div class="preview-meta"></div>
-            <div class="preview-warning hidden"></div>
-          </div>
-          <div class="preview-versions hidden" translate="no">
-            <div class="preview-versions-heading">Version History</div>
-            <aeor-info-box compact class="preview-versions-info hidden" style="margin-bottom:0.5rem">Any version can be safely restored.</aeor-info-box>
-            <div class="preview-versions-list"></div>
-          </div>
-        </div>
-      </div>`;
+    const aeorInfoBox = elements['aeor-info-box'];
+    let panel = div.class('preview-panel hidden').translate('no');
+    if (tab.preview_height) {
+      panel = panel.style(`height:${tab.preview_height}px`);
+    }
+    return panel(
+      div.class('preview-resize-handle')(),
+      div.class('preview-header')(
+        input.type('text').class('preview-title').spellcheck('false')(),
+        div.class('preview-actions')(),
+      ),
+      div.class('preview-inner')(
+        div.class('preview-main')(
+          div.class('preview-content')(),
+          div.class('preview-meta')(),
+          div.class('preview-warning hidden')(),
+        ),
+        div.class('preview-versions hidden').translate('no')(
+          div.class('preview-versions-heading')('Version History'),
+          aeorInfoBox.compact('').class('preview-versions-info hidden').style('margin-bottom:0.5rem')(
+            'Any version can be safely restored.',
+          ),
+          div.class('preview-versions-list')(),
+        ),
+      ),
+    ).build(document);
   }
 
   _renderListRow(entry) {
@@ -570,106 +719,158 @@ class AeorFileBrowserBase extends HTMLElement {
     const icon     = fileIcon(entry.entry_type);
     const size     = (isDir) ? '\u2014' : formatSize(entry.size);
     const created  = formatDate(entry.created_at);
-    const modified = isDeleted
-      ? `<span class="text-danger">Deleted ${formatDate(entry._deleted_at)}</span>`
-      : formatDate(entry.updated_at);
-    const rowClass = isDeleted ? ' deleted-row' : isCut ? ' cut-row' : '';
-    const nameClass = isDeleted ? ' class="deleted-file-name"' : '';
+    const rowClassName = 'file-entry' + (isDeleted ? ' deleted-row' : isCut ? ' cut-row' : '');
 
-    return `
-      <tr class="file-entry${rowClass}" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''}>
-        <td><span class="file-icon">${icon}</span><span${nameClass}>${escapeHtml(entry.name)}</span></td>
-        <td>${size}</td>
-        <td>${created}</td>
-        <td>${modified}</td>
-      </tr>
-    `;
+    // fileIcon() returns a plain emoji codepoint (not HTML), so we can
+    // pass it as a child to `span()`. Keeping it a builder (not a built
+    // DOM node) lets the surrounding `td()` compose it via the
+    // element-builder's child machinery without stringification.
+    const fileIconSpan = span.class('file-icon')(icon);
+    const nameSpan = isDeleted
+      ? span.class('deleted-file-name')(entry.name)
+      : span(entry.name);
+
+    const modifiedCell = isDeleted
+      ? td(span.class('text-danger')(`Deleted ${formatDate(entry._deleted_at)}`))
+      : td(formatDate(entry.updated_at));
+
+    let rowBuilder = tr
+      .class(rowClassName)
+      .dataName(entry.name)
+      .dataType(String(entry.entry_type));
+    if (isDeleted) rowBuilder = rowBuilder.dataDeleted('true');
+
+    return rowBuilder(
+      td(fileIconSpan, nameSpan),
+      td(size),
+      td(created),
+      modifiedCell,
+    ).build(document);
   }
 
   _renderListViewFor(tab, entries) {
-    const rows = entries.map((entry) => this._renderListRow(entry)).join('');
+    const tbodyEl = tbody();
+    const rows = entries.map((entry) => this._renderListRow(entry));
 
-    return `
-      <table>
-        <thead>
-          <tr>
-            <th data-sort="name">Name ${this._sortIndicator('name')}</th>
-            <th data-sort="size">Size ${this._sortIndicator('size')}</th>
-            <th data-sort="created_at">Created ${this._sortIndicator('created_at')}</th>
-            <th data-sort="updated_at">Modified ${this._sortIndicator('updated_at')}</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
+    const tableEl = table(
+      thead(
+        tr(
+          th.dataSort('name')('Name ', this._sortIndicator('name')),
+          th.dataSort('size')('Size ', this._sortIndicator('size')),
+          th.dataSort('created_at')('Created ', this._sortIndicator('created_at')),
+          th.dataSort('updated_at')('Modified ', this._sortIndicator('updated_at')),
+        ),
+      ),
+      tbodyEl,
+    ).build(document);
+
+    // Append rows after the wrapper is built (since _renderListRow already
+    // returns DOM nodes, we can't pass them as element-builder children).
+    const tbodyNode = tableEl.querySelector('tbody');
+    for (const row of rows) tbodyNode.appendChild(row);
+
+    return tableEl;
   }
 
   _renderGridViewFor(tab, entries) {
-    const cards = entries.map((entry) => {
+    const gridEl = div.class('file-grid')().build(document);
+
+    for (const entry of entries) {
       const isDir = (entry.entry_type === ENTRY_TYPE_DIR);
       const size  = (isDir) ? 'Folder' : formatSize(entry.size);
-      let thumbnail;
+      const isDeleted = !!entry._deleted;
 
+      let thumbnailEl;
       if (!isDir && (isImageFile(entry.name) || isVideoFile(entry.name))) {
         // Image/video: show a loading placeholder, async-load with auth later
         const thumbType = isVideoFile(entry.name) ? 'video' : 'image';
-        thumbnail = `<div class="grid-card-thumbnail" data-thumb-path="${escapeAttr(tab.path.replace(/\/$/, '') + '/' + entry.name)}" data-thumb-type="${thumbType}">
-          <div class="grid-card-loading">\u23F3</div>
-        </div>`;
+        const thumbPath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+        thumbnailEl = div
+          .class('grid-card-thumbnail')
+          .dataThumbPath(thumbPath)
+          .dataThumbType(thumbType)(
+            div.class('grid-card-loading')('\u23F3'),
+          );
       } else {
-        // Non-image: show a file type icon
-        thumbnail = `<div class="grid-card-icon">${_fileTypeIcon(entry)}</div>`;
+        // Non-image: show a file type icon (element-builder tree).
+        thumbnailEl = div.class('grid-card-icon')(_fileTypeIcon(entry));
       }
 
-      const isDeleted = !!entry._deleted;
+      let cardBuilder = div
+        .class('grid-card file-entry' + (isDeleted ? ' deleted-card' : ''))
+        .dataName(entry.name)
+        .dataType(String(entry.entry_type));
+      if (isDeleted) cardBuilder = cardBuilder.dataDeleted('true');
 
-      return `
-        <div class="grid-card file-entry${isDeleted ? ' deleted-card' : ''}" data-name="${escapeAttr(entry.name)}" data-type="${entry.entry_type}" ${isDeleted ? 'data-deleted="true"' : ''}>
-          ${thumbnail}
-          <div class="grid-card-name${isDeleted ? ' deleted-name' : ''}" title="${escapeAttr(entry.name)}">${escapeHtml(this._truncate(entry.name, 20))}</div>
-          <div class="grid-card-meta">${isDeleted ? '<span class="text-danger">Deleted</span>' : size}</div>
-        </div>
-      `;
-    }).join('');
+      const truncatedName = this._truncate(entry.name, 20);
+      const cardEl = cardBuilder(
+        thumbnailEl,
+        div.class('grid-card-name' + (isDeleted ? ' deleted-name' : '')).title(entry.name)(
+          truncatedName,
+        ),
+        div.class('grid-card-meta')(
+          isDeleted ? span.class('text-danger')('Deleted') : size,
+        ),
+      ).build(document);
+      gridEl.appendChild(cardEl);
+    }
 
-    return `<div class="file-grid">${cards}</div>`;
+    return gridEl;
   }
 
-  /** Load image/video thumbnails with auth after grid renders. */
+  /** Load image/video thumbnails with auth after grid renders.
+   *  Thumbnails render into small <canvas> elements rather than <img> so
+   *  the browser doesn't hold a full-resolution decoded bitmap per file.
+   *  We `createImageBitmap`, `drawImage` at thumbnail resolution, then
+   *  `bitmap.close()` to release the full-res decode immediately — the
+   *  canvas only retains the small scaled-down pixels (~50KB each vs.
+   *  tens of MB for a 5MP photo). Without this the grid view bogs down
+   *  after just a handful of large images. */
   _loadGridThumbnails(container) {
     if (!container || typeof this.getPreviewSrc !== 'function') return;
     const tab = this._activeTab();
     if (!tab) return;
     tab._gridBlobUrls = tab._gridBlobUrls || [];
-    // Cache blob URLs by path so re-renders reuse them instantly
-    tab._thumbCache = tab._thumbCache || {};
 
     const thumbs = container.querySelectorAll('.grid-card-thumbnail[data-thumb-path]');
     for (const el of thumbs) {
       const path = el.dataset.thumbPath;
       const type = el.dataset.thumbType || 'image';
       if (!path) continue;
-      if (el.querySelector('img')) continue;
-
-      // Use cached blob URL if available (survives re-renders)
-      if (tab._thumbCache[path]) {
-        el.innerHTML = `<img src="${escapeAttr(tab._thumbCache[path])}" alt="" loading="lazy">`;
-        continue;
-      }
+      if (el.querySelector('canvas')) continue;
 
       if (type === 'video') {
         this._loadVideoThumbnail(el, path);
       } else {
-        this.getPreviewSrc(path, 'image/*', true).then((blobUrl) => {
-          tab._thumbCache[path] = blobUrl;
+        this.getPreviewSrc(path, 'image/*', true).then(async (blobUrl) => {
           tab._gridBlobUrls.push(blobUrl);
           // Re-query the element in the current DOM (original may be gone)
           const current = container.querySelector(`.grid-card-thumbnail[data-thumb-path="${CSS.escape(path)}"]`);
-          if (current && !current.querySelector('img')) {
-            current.innerHTML = `<img src="${escapeAttr(blobUrl)}" alt="" loading="lazy">`;
-          }
+          if (!current || current.querySelector('canvas')) return;
+          await this._drawImageThumbnail(current, blobUrl);
         }).catch(() => {});
       }
+    }
+  }
+
+  /** Decode an image (from blob URL) and paint it onto a small canvas
+   *  sized to the thumbnail box, preserving aspect ratio. */
+  async _drawImageThumbnail(thumbnailEl, blobUrl) {
+    let bitmap;
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      bitmap = await createImageBitmap(blob);
+
+      const canvas = _makeThumbnailCanvas(thumbnailEl);
+      _drawCovered(canvas, bitmap);
+
+      thumbnailEl.textContent = '';
+      thumbnailEl.appendChild(canvas);
+    } catch (_) {
+      // leave placeholder in place — fallback icon would require type info
+    } finally {
+      if (bitmap) bitmap.close();
     }
   }
 
@@ -682,10 +883,11 @@ class AeorFileBrowserBase extends HTMLElement {
       const token = (typeof window !== 'undefined' && window.AUTH) ? window.AUTH.token : null;
       const url = this.fileUrl(path) + (token ? `?token=${encodeURIComponent(token)}` : '');
 
-      const video = document.createElement('video');
-      video.crossOrigin = 'anonymous';
-      video.muted = true;
-      video.preload = 'metadata';
+      const video = elements.video
+        .crossOrigin('anonymous')
+        .muted('')
+        .preload('metadata')()
+        .build(document);
       video.src = url;
 
       await new Promise((resolve, reject) => {
@@ -706,41 +908,50 @@ class AeorFileBrowserBase extends HTMLElement {
         setTimeout(() => reject(new Error('seek timeout')), 10000);
       });
 
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
+      // Draw the keyframe straight into a thumbnail-sized canvas \u2014 the
+      // full-res video frame never lives in DOM, only the small scaled
+      // pixels do.
+      const canvasEl = _makeThumbnailCanvas(el);
+      _drawCovered(canvasEl, video, video.videoWidth, video.videoHeight);
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-      el.innerHTML = `<img src="${dataUrl}" alt="" loading="lazy">`;
-
-      // Play icon overlay
-      el.insertAdjacentHTML('beforeend',
-        '<div class="grid-card-play-overlay">\u25B6</div>');
+      el.textContent = '';
+      el.appendChild(canvasEl);
+      el.appendChild(
+        div.class('grid-card-play-overlay')('\u25B6').build(document),
+      );
       el.style.position = 'relative';
 
       // Release resources
       video.src = '';
       video.load();
     } catch (e) {
-      el.innerHTML = `<div class="grid-card-icon">${_FILE_ICONS.video}</div>`;
+      // Fallback to the generic video file-type icon (element-builder tree).
+      el.textContent = '';
+      el.appendChild(
+        div.class('grid-card-icon')(_FILE_ICONS.video()).build(document),
+      );
     }
   }
 
   _renderBreadcrumbs(tab) {
     const path = tab.path;
-    const label = this.rootLabel();
+    const labelText = this.rootLabel();
     const segments = path.split('/').filter((s) => s.length > 0);
-    let html = `<div class="breadcrumbs"><span class="breadcrumb-segment" data-path="/">${escapeHtml(label)}</span>`;
+
+    const children = [
+      span.class('breadcrumb-segment').dataPath('/')(labelText),
+    ];
 
     let accumulated = '/';
     for (const segment of segments) {
       accumulated += segment + '/';
-      html += `<span class="breadcrumb-separator">/</span><span class="breadcrumb-segment" data-path="${escapeAttr(accumulated)}">${escapeHtml(segment)}</span>`;
+      children.push(span.class('breadcrumb-separator')('/'));
+      children.push(
+        span.class('breadcrumb-segment').dataPath(accumulated)(segment),
+      );
     }
 
-    html += '</div>';
-    return html;
+    return div.class('breadcrumbs')(...children).build(document);
   }
 
   // Update only a single tab's content container — no structural DOM change.
@@ -753,37 +964,44 @@ class AeorFileBrowserBase extends HTMLElement {
 
     if (!listingArea) {
       // First render: full build
-      container.innerHTML = `<div class="tab-listing-area">${this._renderDirectoryViewFor(tab)}</div>${this._renderPreviewPanel(tab)}`;
+      container.textContent = '';
+      const newListingArea = div.class('tab-listing-area')().build(document);
+      for (const node of this._renderDirectoryViewFor(tab)) {
+        newListingArea.appendChild(node);
+      }
+      container.appendChild(newListingArea);
+      container.appendChild(this._renderPreviewPanel(tab));
       this._bindTabContentEvents(tabId);
     } else {
       // Selective update: only replace the file listing, preserve toolbar + header
       const listing = listingArea.querySelector('.tab-listing');
       const scrollTop = (listing) ? listing.scrollTop : 0;
 
-      // Update breadcrumbs in place
+      // Update breadcrumbs + header buttons in place
       const headerEl = listingArea.querySelector('.tab-header');
       if (headerEl) {
-        const breadcrumbs = this._renderBreadcrumbs(tab);
         const configActions = this._getConfigActions(tab);
-        const configBar = (configActions) ? `<div class="config-actions-bar">${configActions}</div>` : '';
-        headerEl.innerHTML = `
-          <div class="page-header">
-            ${breadcrumbs}
-            <div class="page-header-actions">
-              ${configBar}
-              <button class="secondary small header-paste-btn hidden">Paste</button>
-              ${this._isRoot() ? `<button class="success small snapshot-button">Snapshot</button>` : ''}
-              ${this._hasPermission('c') ? `
-              <button class="secondary small new-folder-button">New Folder</button>
-              <button class="primary small upload-button">Upload</button>
-              <input type="file" class="upload-input hidden" multiple>` : ''}
-            </div>
-          </div>`;
+        headerEl.textContent = '';
+
+        const headerActions = div.class('page-header-actions')(
+          configActions ? div.class('config-actions-bar')(...configActions) : null,
+          button.class('secondary small header-paste-btn hidden')('Paste'),
+          this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
+          this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
+          this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
+          this._hasPermission('c') ? input.type('file').class('upload-input hidden').multiple('')() : null,
+        ).build(document);
+
+        const pageHeader = div.class('page-header')().build(document);
+        pageHeader.appendChild(this._renderBreadcrumbs(tab));
+        pageHeader.appendChild(headerActions);
+        headerEl.appendChild(pageHeader);
       }
 
       // Update listing content only (toolbar is preserved)
       if (listing) {
-        listing.innerHTML = this._renderListingContent(tab);
+        listing.textContent = '';
+        listing.appendChild(this._renderListingContent(tab));
         // Clear any loading state class (dimming/cursor from _fetchListing)
         listing.classList.remove('loading');
       }
@@ -842,18 +1060,21 @@ class AeorFileBrowserBase extends HTMLElement {
 
       if (latestVersion) {
         // Has snapshots — show preview of the latest version
-        panel.querySelector('.preview-actions').innerHTML = `
-          <div class="preview-actions-row">
-            <button class="secondary small" data-action="close-preview">\u2715</button>
-          </div>
-        `;
+        const actionsEl = panel.querySelector('.preview-actions');
+        actionsEl.textContent = '';
+        actionsEl.appendChild(
+          div.class('preview-actions-row')(
+            button.class('secondary small').dataAction('close-preview')('\u2715'),
+          ).build(document),
+        );
 
         // Load the preview from the snapshot
         const contentType = latestVersion.content_type || 'application/octet-stream';
         const componentName = await loadPreviewComponent(contentType);
         const contentEl = panel.querySelector('.preview-content');
         if (componentName) {
-          contentEl.innerHTML = `<${componentName}></${componentName}>`;
+          contentEl.textContent = '';
+          contentEl.appendChild(elements[componentName]().build(document));
           const previewEl = contentEl.querySelector(componentName);
           if (previewEl) {
             const snapshotId = latestVersion.id || latestVersion.snapshot;
@@ -880,24 +1101,32 @@ class AeorFileBrowserBase extends HTMLElement {
         });
       } else {
         // No snapshots — show trash can with "Undelete" button
-        panel.querySelector('.preview-actions').innerHTML = `
-          ${this._hasPermission('u', entry) ? '<button class="primary small" data-action="restore-deleted">Undelete</button>' : ''}
-          <button class="secondary small" data-action="close-preview">\u2715</button>
-        `;
+        const noSnapActions = panel.querySelector('.preview-actions');
+        noSnapActions.textContent = '';
+        if (this._hasPermission('u', entry)) {
+          noSnapActions.appendChild(
+            button.class('primary small').dataAction('restore-deleted')('Undelete').build(document),
+          );
+        }
+        noSnapActions.appendChild(
+          button.class('secondary small').dataAction('close-preview')('\u2715').build(document),
+        );
 
+        const { strong } = elements;
         const contentEl = panel.querySelector('.preview-content');
-        contentEl.innerHTML = `
-          <div class="deleted-file-placeholder">
-            <div class="deleted-file-icon">&#128465;</div>
-            <div class="deleted-file-title">File Deleted</div>
-            <div class="deleted-file-info">
-              Deleted on ${formatDate(entry._deleted_at)}
-            </div>
-            <div class="deleted-file-hint">
-              No snapshots available. Click <strong>Undelete</strong> to recover from the database history.
-            </div>
-          </div>
-        `;
+        contentEl.textContent = '';
+        contentEl.appendChild(
+          div.class('deleted-file-placeholder')(
+            div.class('deleted-file-icon')('\uD83D\uDDD1'),
+            div.class('deleted-file-title')('File Deleted'),
+            div.class('deleted-file-info')(`Deleted on ${formatDate(entry._deleted_at)}`),
+            div.class('deleted-file-hint')(
+              'No snapshots available. Click ',
+              strong('Undelete'),
+              ' to recover from the database history.',
+            ),
+          ).build(document),
+        );
 
         panel.querySelector('.preview-meta').textContent = `Deleted \u00B7 ${formatDate(entry._deleted_at)}`;
 
@@ -934,18 +1163,32 @@ class AeorFileBrowserBase extends HTMLElement {
     titleInput.classList.toggle('no-pointer-events', !canRename);
 
     // Update action buttons — subclasses can inject extra buttons via previewActions()
-    const extraActions = this.previewActions(entry) || '';
-    panel.querySelector('.preview-actions').innerHTML = `
-      ${this._hasPermission('d', entry) ? '<aeor-confirm-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
-      ${extraActions}
-      <button class="secondary small" data-action="close-preview">\u2715</button>
-    `;
+    // CONTRACT-INJECTION: previewActions(entry) may return a Node, an array
+    // of Nodes, or an HTML string (legacy). _appendHook handles all three.
+    const fileActions = panel.querySelector('.preview-actions');
+    fileActions.textContent = '';
+    if (this._hasPermission('d', entry)) {
+      fileActions.appendChild(
+        aeorConfirmButton
+          .class('preview-delete-btn')
+          .label('Delete')
+          .confirmedText('Deleted!')
+          .duration('1000')
+          .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')()
+          .build(document),
+      );
+    }
+    _appendHook(fileActions, this.previewActions(entry));
+    fileActions.appendChild(
+      button.class('secondary small').dataAction('close-preview')('\u2715').build(document),
+    );
 
     // Update preview component — only swap if the component type changed
     const contentEl = panel.querySelector('.preview-content');
     const existingPreview = contentEl.firstElementChild;
     if (!existingPreview || existingPreview.tagName.toLowerCase() !== componentName) {
-      contentEl.innerHTML = `<${componentName}></${componentName}>`;
+      contentEl.textContent = '';
+      contentEl.appendChild(elements[componentName]().build(document));
     }
 
     // Set attributes on the preview element
@@ -972,14 +1215,26 @@ class AeorFileBrowserBase extends HTMLElement {
       const isSystemFile = /\/\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(filePath) || /^\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(entry.name);
       if (isSystemFile) {
         warningEl.classList.remove('hidden');
-        warningEl.innerHTML = `
-          <div class="system-file-warning">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span class="system-file-warning-text">This is a system configuration file. Modifying or deleting it may affect database behavior and could cause instability.</span>
-          </div>`;
+        warningEl.textContent = '';
+        const warnSvg = elements.svg
+          .width('18').height('18').viewBox('0 0 24 24')
+          .fill('none').stroke('#d29922').strokeWidth('2')
+          .strokeLinecap('round').strokeLinejoin('round')(
+            elements.path.d('M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z')(),
+            elements.line.x1('12').y1('9').x2('12').y2('13')(),
+            elements.line.x1('12').y1('17').x2('12.01').y2('17')(),
+          );
+        warningEl.appendChild(
+          div.class('system-file-warning')(
+            warnSvg,
+            span.class('system-file-warning-text')(
+              'This is a system configuration file. Modifying or deleting it may affect database behavior and could cause instability.',
+            ),
+          ).build(document),
+        );
       } else {
         warningEl.classList.add('hidden');
-        warningEl.innerHTML = '';
+        warningEl.textContent = '';
       }
     }
 
@@ -1046,15 +1301,31 @@ class AeorFileBrowserBase extends HTMLElement {
     titleInput.classList.toggle('no-pointer-events', !canRename);
 
     // Action buttons — Delete, Download ZIP, Share, Close
-    const dirActions = this.directoryPreviewActions(entry) || '';
-    panel.querySelector('.preview-actions').innerHTML = `
-      ${this._hasPermission('d', entry) ? '<aeor-confirm-button class="preview-delete-btn" label="Delete" confirmed-text="Deleted!" duration="1000" style="--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);"></aeor-confirm-button>' : ''}
-      ${dirActions}
-      <button class="secondary small" data-action="close-preview">\u2715</button>
-    `;
+    // CONTRACT-INJECTION: directoryPreviewActions(entry) may return Node/
+    // array/string. _appendHook handles all three.
+    const dirActionsEl = panel.querySelector('.preview-actions');
+    dirActionsEl.textContent = '';
+    if (this._hasPermission('d', entry)) {
+      dirActionsEl.appendChild(
+        aeorConfirmButton
+          .class('preview-delete-btn')
+          .label('Delete')
+          .confirmedText('Deleted!')
+          .duration('1000')
+          .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')()
+          .build(document),
+      );
+    }
+    _appendHook(dirActionsEl, this.directoryPreviewActions(entry));
+    dirActionsEl.appendChild(
+      button.class('secondary small').dataAction('close-preview')('\u2715').build(document),
+    );
 
-    panel.querySelector('.preview-content').innerHTML =
-      '<div class="directory-preview-icon">&#128193;</div>';
+    const dirContentEl = panel.querySelector('.preview-content');
+    dirContentEl.textContent = '';
+    dirContentEl.appendChild(
+      div.class('directory-preview-icon')('\uD83D\uDCC1').build(document),
+    );
 
     panel.querySelector('.preview-meta').textContent =
       `Directory \u00B7 ${formatDate(entry.created_at)}`;
@@ -1639,7 +1910,10 @@ class AeorFileBrowserBase extends HTMLElement {
   _clearSelection(tab) {
     tab.selectedEntries.clear();
     tab.lastSelectedAnchor = null;
+    tab.preview_entry = null;
+    tab.preview_component = null;
     this._updateSelectionVisual(tab);
+    this._showPreview(tab);
   }
 
   async _deleteSelected() {
@@ -2132,39 +2406,35 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _showAddIndexModal(configPath) {
-    const modal = document.createElement('aeor-modal');
+    const { select, option } = elements;
+    const fieldGroup = (labelText, inputBuilder) =>
+      div.class('modal-field-group')(
+        label.class('modal-field-label')(labelText),
+        inputBuilder,
+      );
+
+    const typeOptions = ['string', 'u64', 'i64', 'f64', 'bool', 'timestamp', 'trigram', 'phonetic']
+      .map((t) => option.value(t)(t));
+
+    const modal = aeorModal()(
+      fieldGroup('Field Name',
+        input.type('text').class('index-field-name modal-field-input').placeholder('e.g. email')(),
+      ),
+      fieldGroup('Index Type',
+        select.class('index-field-type modal-field-input')(...typeOptions),
+      ),
+      fieldGroup('Min Value (optional, numeric types)',
+        input.type('number').class('index-field-min modal-field-input').placeholder('')(),
+      ),
+      fieldGroup('Max Value (optional, numeric types)',
+        input.type('number').class('index-field-max modal-field-input').placeholder('')(),
+      ),
+      div.class('modal-footer-actions')(
+        button.class('secondary small modal-cancel')('Cancel'),
+        button.class('primary small modal-save')('Add Index'),
+      ),
+    ).build(document);
     modal.title = 'Add Index';
-    modal.innerHTML = `
-      <div class="modal-field-group">
-        <label class="modal-field-label">Field Name</label>
-        <input type="text" class="index-field-name modal-field-input" placeholder="e.g. email">
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Index Type</label>
-        <select class="index-field-type modal-field-input">
-          <option value="string">string</option>
-          <option value="u64">u64</option>
-          <option value="i64">i64</option>
-          <option value="f64">f64</option>
-          <option value="bool">bool</option>
-          <option value="timestamp">timestamp</option>
-          <option value="trigram">trigram</option>
-          <option value="phonetic">phonetic</option>
-        </select>
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Min Value (optional, numeric types)</label>
-        <input type="number" class="index-field-min modal-field-input" placeholder="">
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Max Value (optional, numeric types)</label>
-        <input type="number" class="index-field-max modal-field-input" placeholder="">
-      </div>
-      <div class="modal-footer-actions">
-        <button class="secondary small modal-cancel">Cancel</button>
-        <button class="primary small modal-save">Add Index</button>
-      </div>
-    `;
     document.body.appendChild(modal);
 
     const nameInput = modal.querySelector('.index-field-name');
@@ -2231,22 +2501,25 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _showAddParserModal(configPath) {
-    const modal = document.createElement('aeor-modal');
+    const fieldGroup = (labelText, inputBuilder) =>
+      div.class('modal-field-group')(
+        label.class('modal-field-label')(labelText),
+        inputBuilder,
+      );
+
+    const modal = aeorModal()(
+      fieldGroup('Content Type',
+        input.type('text').class('parser-content-type modal-field-input').placeholder('e.g. application/pdf')(),
+      ),
+      fieldGroup('Parser Path',
+        input.type('text').class('parser-path modal-field-input').placeholder('e.g. /parsers/pdf')(),
+      ),
+      div.class('modal-footer-actions')(
+        button.class('secondary small modal-cancel')('Cancel'),
+        button.class('primary small modal-save')('Add Parser'),
+      ),
+    ).build(document);
     modal.title = 'Add Parser';
-    modal.innerHTML = `
-      <div class="modal-field-group">
-        <label class="modal-field-label">Content Type</label>
-        <input type="text" class="parser-content-type modal-field-input" placeholder="e.g. application/pdf">
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Parser Path</label>
-        <input type="text" class="parser-path modal-field-input" placeholder="e.g. /parsers/pdf">
-      </div>
-      <div class="modal-footer-actions">
-        <button class="secondary small modal-cancel">Cancel</button>
-        <button class="primary small modal-save">Add Parser</button>
-      </div>
-    `;
     document.body.appendChild(modal);
 
     const contentTypeInput = modal.querySelector('.parser-content-type');
@@ -2302,26 +2575,29 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _showCorsConfigModal(configPath) {
-    const modal = document.createElement('aeor-modal');
+    const fieldGroup = (labelText, inputBuilder) =>
+      div.class('modal-field-group')(
+        label.class('modal-field-label')(labelText),
+        inputBuilder,
+      );
+
+    const modal = aeorModal()(
+      fieldGroup('Origins (comma-separated)',
+        input.type('text').class('cors-origins modal-field-input')
+          .placeholder('e.g. https://example.com, https://app.example.com')(),
+      ),
+      fieldGroup('Methods (comma-separated)',
+        input.type('text').class('cors-methods modal-field-input').value('GET,POST,PUT,DELETE')(),
+      ),
+      fieldGroup('Headers (comma-separated)',
+        input.type('text').class('cors-headers modal-field-input').value('Content-Type,Authorization')(),
+      ),
+      div.class('modal-footer-actions')(
+        button.class('secondary small modal-cancel')('Cancel'),
+        button.class('primary small modal-save')('Save CORS'),
+      ),
+    ).build(document);
     modal.title = 'CORS Config';
-    modal.innerHTML = `
-      <div class="modal-field-group">
-        <label class="modal-field-label">Origins (comma-separated)</label>
-        <input type="text" class="cors-origins modal-field-input" placeholder="e.g. https://example.com, https://app.example.com">
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Methods (comma-separated)</label>
-        <input type="text" class="cors-methods modal-field-input" value="GET,POST,PUT,DELETE">
-      </div>
-      <div class="modal-field-group">
-        <label class="modal-field-label">Headers (comma-separated)</label>
-        <input type="text" class="cors-headers modal-field-input" value="Content-Type,Authorization">
-      </div>
-      <div class="modal-footer-actions">
-        <button class="secondary small modal-cancel">Cancel</button>
-        <button class="primary small modal-save">Save CORS</button>
-      </div>
-    `;
     document.body.appendChild(modal);
 
     const originsInput = modal.querySelector('.cors-origins');
@@ -2382,26 +2658,25 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _promptNewFolder() {
-    const modal = document.createElement('aeor-modal');
+    const modal = aeorModal()(
+      div.class('modal-field-group')(
+        label.class('modal-field-label')('Folder Name'),
+        input.type('text').class('new-folder-name modal-field-input').placeholder('my-folder')(),
+      ),
+      div.class('modal-footer-actions')(
+        button.class('secondary small modal-cancel')('Cancel'),
+        button.class('primary small modal-create')('Create'),
+      ),
+    ).build(document);
     modal.title = 'New Folder';
-    modal.innerHTML = `
-      <div class="modal-field-group">
-        <label class="modal-field-label">Folder Name</label>
-        <input type="text" class="new-folder-name modal-field-input" placeholder="my-folder">
-      </div>
-      <div class="modal-footer-actions">
-        <button class="secondary small modal-cancel">Cancel</button>
-        <button class="primary small modal-create">Create</button>
-      </div>
-    `;
     document.body.appendChild(modal);
 
-    const input = modal.querySelector('.new-folder-name');
+    const nameInput = modal.querySelector('.new-folder-name');
     const createBtn = modal.querySelector('.modal-create');
     const cancelBtn = modal.querySelector('.modal-cancel');
 
     // Focus the input
-    setTimeout(() => input.focus(), 100);
+    setTimeout(() => nameInput.focus(), 100);
 
     let resolved = false;
     const done = () => {
@@ -2411,7 +2686,7 @@ class AeorFileBrowserBase extends HTMLElement {
     };
 
     const doCreate = async () => {
-      const name = input.value.trim();
+      const name = nameInput.value.trim();
       if (!name) return;
 
       const tab = this._activeTab();
@@ -2431,7 +2706,7 @@ class AeorFileBrowserBase extends HTMLElement {
     createBtn.addEventListener('click', doCreate);
     cancelBtn.addEventListener('click', done);
     modal.addEventListener('close', done);
-    input.addEventListener('keydown', (event) => {
+    nameInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         doCreate();
@@ -2515,8 +2790,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     let progressPanel = container && container.querySelector('.upload-progress');
     if (!progressPanel && container) {
-      progressPanel = document.createElement('div');
-      progressPanel.className = 'upload-progress';
+      progressPanel = div.class('upload-progress')().build(document);
       container.appendChild(progressPanel);
     }
 
@@ -2535,20 +2809,23 @@ class AeorFileBrowserBase extends HTMLElement {
 
       if (!progressInitialized) {
         progressInitialized = true;
-        progressPanel.innerHTML = `
-          <div class="upload-progress-header">
-            <span class="upload-progress-title"></span>
-            <span class="upload-progress-speed"></span>
-          </div>
-          <div class="upload-progress-filename"></div>
-          <div class="upload-progress-bar-track">
-            <div class="upload-progress-bar-fill" style="width: 0%"></div>
-          </div>
-          <div class="upload-progress-meta upload-progress-meta-flex">
-            <span class="upload-progress-count"></span>
-            <aeor-confirm-button label="Cancel" duration="1000"></aeor-confirm-button>
-          </div>
-        `;
+        progressPanel.textContent = '';
+        progressPanel.appendChild(
+          div(
+            div.class('upload-progress-header')(
+              span.class('upload-progress-title')(),
+              span.class('upload-progress-speed')(),
+            ),
+            div.class('upload-progress-filename')(),
+            div.class('upload-progress-bar-track')(
+              div.class('upload-progress-bar-fill').style('width: 0%')(),
+            ),
+            div.class('upload-progress-meta upload-progress-meta-flex')(
+              span.class('upload-progress-count')(),
+              aeorConfirmButton.label('Cancel').duration('1000')(),
+            ),
+          ).build(document),
+        );
         const cancelBtn = progressPanel.querySelector('aeor-confirm-button');
         if (cancelBtn) cancelBtn.addEventListener('confirm', () => { cancelled = true; });
       }
@@ -2591,17 +2868,23 @@ class AeorFileBrowserBase extends HTMLElement {
     if (progressPanel) {
       const statusTitle = cancelled ? 'Upload cancelled' : 'Upload complete';
       const skippedText = cancelled ? ` \u00B7 ${totalFiles - completedFiles} skipped` : '';
-      progressPanel.innerHTML = `
-        <div class="upload-progress-header">
-          <span class="upload-progress-title">${statusTitle}</span>
-        </div>
-        <div class="upload-progress-bar-track">
-          <div class="upload-progress-bar-fill" style="width: ${cancelled ? Math.round((completedFiles / totalFiles) * 100) : 100}%"></div>
-        </div>
-        <div class="upload-progress-meta">
-          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}${skippedText}
-        </div>
-      `;
+      const widthPct = cancelled ? Math.round((completedFiles / totalFiles) * 100) : 100;
+      const failedText = (failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : '';
+
+      progressPanel.textContent = '';
+      progressPanel.appendChild(
+        div(
+          div.class('upload-progress-header')(
+            span.class('upload-progress-title')(statusTitle),
+          ),
+          div.class('upload-progress-bar-track')(
+            div.class('upload-progress-bar-fill').style(`width: ${widthPct}%`)(),
+          ),
+          div.class('upload-progress-meta')(
+            `${completedFiles} files uploaded${failedText}${skippedText}`,
+          ),
+        ).build(document),
+      );
       setTimeout(() => { if (progressPanel.parentNode) progressPanel.remove(); }, 2000);
     }
 
@@ -2630,8 +2913,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     let progressPanel = container && container.querySelector('.upload-progress');
     if (!progressPanel && container) {
-      progressPanel = document.createElement('div');
-      progressPanel.className = 'upload-progress';
+      progressPanel = div.class('upload-progress')().build(document);
       container.appendChild(progressPanel);
     }
 
@@ -2649,17 +2931,20 @@ class AeorFileBrowserBase extends HTMLElement {
 
       if (!progressInitialized) {
         progressInitialized = true;
-        progressPanel.innerHTML = `
-          <div class="upload-progress-header">
-            <span class="upload-progress-title"></span>
-            <span class="upload-progress-speed"></span>
-          </div>
-          <div class="upload-progress-filename"></div>
-          <div class="upload-progress-bar-track">
-            <div class="upload-progress-bar-fill" style="width: 0%"></div>
-          </div>
-          <div class="upload-progress-meta"></div>
-        `;
+        progressPanel.textContent = '';
+        progressPanel.appendChild(
+          div(
+            div.class('upload-progress-header')(
+              span.class('upload-progress-title')(),
+              span.class('upload-progress-speed')(),
+            ),
+            div.class('upload-progress-filename')(),
+            div.class('upload-progress-bar-track')(
+              div.class('upload-progress-bar-fill').style('width: 0%')(),
+            ),
+            div.class('upload-progress-meta')(),
+          ).build(document),
+        );
       }
 
       // Update text nodes in place — no DOM destruction
@@ -2697,17 +2982,21 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Show completion briefly, then remove
     if (progressPanel) {
-      progressPanel.innerHTML = `
-        <div class="upload-progress-header">
-          <span class="upload-progress-title">Upload complete</span>
-        </div>
-        <div class="upload-progress-bar-track">
-          <div class="upload-progress-bar-fill" style="width: 100%"></div>
-        </div>
-        <div class="upload-progress-meta">
-          ${completedFiles} files uploaded${(failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : ''}
-        </div>
-      `;
+      const failedText = (failedCount > 0) ? ' \u00B7 ' + failedCount + ' failed' : '';
+      progressPanel.textContent = '';
+      progressPanel.appendChild(
+        div(
+          div.class('upload-progress-header')(
+            span.class('upload-progress-title')('Upload complete'),
+          ),
+          div.class('upload-progress-bar-track')(
+            div.class('upload-progress-bar-fill').style('width: 100%')(),
+          ),
+          div.class('upload-progress-meta')(
+            `${completedFiles} files uploaded${failedText}`,
+          ),
+        ).build(document),
+      );
       setTimeout(() => { if (progressPanel.parentNode) progressPanel.remove(); }, 2000);
     }
 
@@ -2739,11 +3028,10 @@ class AeorFileBrowserBase extends HTMLElement {
   async _showShareModal(paths) {
     if (!paths || paths.length === 0) return;
 
-    const modal = document.createElement('aeor-modal');
+    const modal = aeorModal()(
+      div.class('share-loading')('Loading...'),
+    ).build(document);
     modal.title = 'Share';
-
-    // Show a loading state while we fetch data
-    modal.innerHTML = '<div class="share-loading">Loading...</div>';
     document.body.appendChild(modal);
 
     // Fetch users, groups, and current shares in parallel
@@ -2788,143 +3076,152 @@ class AeorFileBrowserBase extends HTMLElement {
       if (currentUserId && uid === currentUserId) return false;
       return true;
     });
-    const userOptions = filteredUsers.map((u) => {
-      const label = u.username || u.user_id || '';
-      const value = u.user_id || u.id || '';
-      return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
-    }).join('');
 
     // Build group options — filter out user:UUID auto-groups (redundant with Users selector)
     const filteredGroups = groups.filter((g) => {
       const name = g.name || g.group || '';
       return !name.startsWith('user:');
     });
-    const groupOptions = filteredGroups.map((g) => {
-      const label = g.name || g.group || g.id || '';
-      const value = g.name || g.group || g.id || '';
-      return `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`;
-    }).join('');
 
-    // Build current shares list
-    let sharesHtml = '';
-    if (Array.isArray(currentShares) && currentShares.length > 0) {
-      const shareRows = currentShares.map((s) => {
-        const target = s.username || s.display_name || s.group || 'Unknown';
-        const perm = s.allow || s.permissions || '';
-        const pattern = s.path_pattern || s.path || '';
-        return `
-          <div class="share-entry-row">
-            <div>
-              <span class="share-entry-name">${escapeHtml(target)}</span>
-              <span class="share-entry-perm">${escapeHtml(perm)}</span>
-            </div>
-            <button class="danger small share-revoke-btn" data-group="${escapeAttr(s.group || '')}" data-pattern="${escapeAttr(pattern)}">&times;</button>
-          </div>
-        `;
-      }).join('');
-      sharesHtml = `
-        <div class="current-shares-section">
-          <div class="modal-field-label">Current Shares</div>
-          ${shareRows}
-        </div>
-      `;
-    }
+    const { select, option } = elements;
+    const aeorTabView = elements['aeor-tab-view'];
+    const aeorTab = elements['aeor-tab'];
+    const aeorCrudlify = elements['aeor-crudlify'];
 
-    // Build active share links HTML for Link tab
-    const linkSharesHtml = activeLinks.length > 0 ? activeLinks.map((l) => `
-      <div class="link-entry-row">
-        <div>
-          <span class="link-entry-label">${escapeHtml(l.label || 'Share link')}</span>
-          <span class="link-entry-expires">${l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires'}</span>
-        </div>
-        <button class="danger small link-revoke-btn" data-key-id="${escapeAttr(l.key_id)}">&times;</button>
-      </div>
-    `).join('') : '<div class="no-active-links">No active links</div>';
+    const section = (...children) => div.class('share-section')(...children);
+    const fieldLabel = (text) => label.class('modal-field-label')(text);
 
-    // Populate modal body
+    const userOptionEls = filteredUsers.map((u) =>
+      option.value(u.user_id || u.id || '')(u.username || u.user_id || ''),
+    );
+    const groupOptionEls = filteredGroups.map((g) => {
+      const name = g.name || g.group || g.id || '';
+      return option.value(name)(name);
+    });
+
+    const summaryText = `Sharing: ${fileNames}${(paths.length > 1) ? ` (${paths.length} items)` : ''}`;
+
+    const peopleTab = aeorTab.label('People').name('people')(
+      section(
+        fieldLabel('Users'),
+        input.type('text').class('share-users-filter modal-field-input share-filter-input').placeholder('Search users...')(),
+        select.class('share-users-select modal-field-input share-multi-select').multiple('')(
+          ...userOptionEls,
+        ),
+        div.class('share-select-hint')('Hold Ctrl/Cmd to select multiple'),
+      ),
+      section(
+        fieldLabel('Groups'),
+        input.type('text').class('share-groups-filter modal-field-input share-filter-input').placeholder('Search groups...')(),
+        select.class('share-groups-select modal-field-input share-multi-select').multiple('')(
+          ...groupOptionEls,
+        ),
+      ),
+      section(
+        fieldLabel('Permission Level'),
+        select.class('share-permission-select modal-field-input')(
+          option.value('.r..l...')('View only'),
+          option.value('crudl...')('Can edit'),
+          option.value('crudlify')('Full access'),
+          option.value('custom')('Custom'),
+        ),
+      ),
+      div.class('share-custom-flags hidden custom-flags-section')(
+        aeorCrudlify.class('share-crudlify').value('--------')(),
+      ),
+      div.class('modal-footer-actions')(
+        button.class('secondary small share-cancel')('Cancel'),
+        button.class('primary small share-submit')('Share'),
+      ),
+    );
+
+    const expirySelect = select.class('link-expiry-select modal-field-input')(
+      option.value('')('Never'),
+      option.value('1')('1 day'),
+      option.value('7')('7 days'),
+      option.value('30')('30 days'),
+      option.value('90')('90 days'),
+      option.value('365')('1 year'),
+    );
+
+    // Build active share-links list as DOM nodes.
+    const linkSharesEl = activeLinks.length > 0
+      ? activeLinks.map((l) =>
+          div.class('link-entry-row')(
+            div(
+              span.class('link-entry-label')(l.label || 'Share link'),
+              span.class('link-entry-expires')(
+                l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires',
+              ),
+            ),
+            button.class('danger small link-revoke-btn').dataKeyId(l.key_id)('×'),
+          ),
+        )
+      : [div.class('no-active-links')('No active links')];
+
+    const linkTab = aeorTab.label('Link').name('link')(
+      section(
+        fieldLabel('Permission Level'),
+        select.class('link-permission-select modal-field-input')(
+          option.value('-r--l---')('View only'),
+          option.value('crudl...').selected('')('Can edit'),
+          option.value('crudlify')('Full access'),
+          option.value('custom')('Custom'),
+        ),
+      ),
+      div.class('link-custom-flags hidden share-section')(
+        aeorCrudlify.class('link-crudlify').value('--------')(),
+      ),
+      section(
+        fieldLabel('Expiration'),
+        expirySelect,
+      ),
+      div.class('link-create-footer')(
+        button.class('primary small link-create-btn')('Create Link'),
+      ),
+      div.class('link-result hidden link-result-section')(
+        fieldLabel('Share URL'),
+        div.class('link-result-row')(
+          input.type('text').class('link-url-input modal-field-input flex-1')
+            .readonly('').onFocus((e) => e.target.select())(),
+          button.class('secondary small link-copy-btn')('Copy'),
+        ),
+      ),
+      div.class('link-active-links')(...linkSharesEl),
+    );
+
+    const currentSharesSection = (Array.isArray(currentShares) && currentShares.length > 0)
+      ? div.class('current-shares-section')(
+          div.class('modal-field-label')('Current Shares'),
+          ...currentShares.map((s) => {
+            const target = s.username || s.display_name || s.group || 'Unknown';
+            const perm = s.allow || s.permissions || '';
+            const pattern = s.path_pattern || s.path || '';
+            return div.class('share-entry-row')(
+              div(
+                span.class('share-entry-name')(target),
+                span.class('share-entry-perm')(perm),
+              ),
+              button.class('danger small share-revoke-btn')
+                .dataGroup(s.group || '').dataPattern(pattern)('×'),
+            );
+          }),
+        )
+      : null;
+
+    // Replace modal body content
     const body = modal.querySelector('.aeor-modal__body');
-    body.innerHTML = `
-      <div class="share-file-summary">
-        Sharing: ${escapeHtml(fileNames)}${(paths.length > 1) ? ` (${paths.length} items)` : ''}
-      </div>
-
-      <aeor-tab-view active="people" class="share-tab-bar">
-        <aeor-tab label="People" name="people">
-        <div class="share-section">
-          <label class="modal-field-label">Users</label>
-          <input type="text" class="share-users-filter modal-field-input share-filter-input" placeholder="Search users...">
-          <select class="share-users-select modal-field-input share-multi-select" multiple>
-            ${userOptions}
-          </select>
-          <div class="share-select-hint">Hold Ctrl/Cmd to select multiple</div>
-        </div>
-
-        <div class="share-section">
-          <label class="modal-field-label">Groups</label>
-          <input type="text" class="share-groups-filter modal-field-input share-filter-input" placeholder="Search groups...">
-          <select class="share-groups-select modal-field-input share-multi-select" multiple>
-            ${groupOptions}
-          </select>
-        </div>
-
-        <div class="share-section">
-          <label class="modal-field-label">Permission Level</label>
-          <select class="share-permission-select modal-field-input">
-            <option value=".r..l...">View only</option>
-            <option value="crudl...">Can edit</option>
-            <option value="crudlify">Full access</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div class="share-custom-flags hidden custom-flags-section">
-          <aeor-crudlify class="share-crudlify" value="--------"></aeor-crudlify>
-        </div>
-
-        <div class="modal-footer-actions">
-          <button class="secondary small share-cancel">Cancel</button>
-          <button class="primary small share-submit">Share</button>
-        </div>
-        </aeor-tab>
-        <aeor-tab label="Link" name="link">
-        <div class="share-section">
-          <label class="modal-field-label">Permission Level</label>
-          <select class="link-permission-select modal-field-input">
-            <option value="-r--l---">View only</option>
-            <option value="crudl..." selected>Can edit</option>
-            <option value="crudlify">Full access</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div class="link-custom-flags hidden share-section">
-          <aeor-crudlify class="link-crudlify" value="--------"></aeor-crudlify>
-        </div>
-        <div class="share-section">
-          <label class="modal-field-label">Expiration</label>
-          <select class="link-expiry-select modal-field-input">
-            <option value="">Never</option>
-            <option value="1">1 day</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-            <option value="365">1 year</option>
-          </select>
-        </div>
-        <div class="link-create-footer">
-          <button class="primary small link-create-btn">Create Link</button>
-        </div>
-        <div class="link-result hidden link-result-section">
-          <label class="modal-field-label">Share URL</label>
-          <div class="link-result-row">
-            <input type="text" class="link-url-input modal-field-input flex-1" readonly onfocus="this.select()">
-            <button class="secondary small link-copy-btn">Copy</button>
-          </div>
-        </div>
-        <div class="link-active-links">${linkSharesHtml}</div>
-        </aeor-tab>
-      </aeor-tab-view>
-
-      ${sharesHtml}
-    `;
+    body.textContent = '';
+    body.appendChild(
+      div(
+        div.class('share-file-summary')(summaryText),
+        aeorTabView.active('people').class('share-tab-bar')(
+          peopleTab,
+          linkTab,
+        ),
+        currentSharesSection,
+      ).build(document),
+    );
 
     // Bind events
     const usersSelect = body.querySelector('.share-users-select');
@@ -3086,13 +3383,14 @@ class AeorFileBrowserBase extends HTMLElement {
     const isMac = navigator.platform.includes('Mac');
     const mod = isMac ? 'Cmd' : 'Ctrl';
 
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
+    const menu = div.class('context-menu')(
+      div.class('context-menu-item').dataContext('paste')(
+        'Paste ',
+        span.class('context-menu-hotkey')(`${mod}+V`),
+      ),
+    ).build(document);
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
-    menu.innerHTML = `
-      <div class="context-menu-item" data-context="paste">Paste <span class="context-menu-hotkey">${mod}+V</span></div>
-    `;
     this.appendChild(menu);
 
     const rect = menu.getBoundingClientRect();
@@ -3124,19 +3422,24 @@ class AeorFileBrowserBase extends HTMLElement {
     const clipboard = this._getClipboard();
     const tab = this._activeTab();
 
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
+    const { hr } = elements;
+    const menuItem = (action, text, hotkey, extraClass = '') =>
+      div.class('context-menu-item' + (extraClass ? ' ' + extraClass : '')).dataContext(action)(
+        text,
+        hotkey ? span.class('context-menu-hotkey')(hotkey) : null,
+      );
+
+    const menu = div.class('context-menu')(
+      menuItem('preview', 'Preview'),
+      this._hasPermission('y') ? menuItem('share', 'Share') : null,
+      this._hasPermission('u') ? menuItem('cut', 'Cut ', `${mod}+X`) : null,
+      menuItem('copy', 'Copy ', `${mod}+C`),
+      clipboard ? menuItem('paste', 'Paste ', `${mod}+V`) : null,
+      this._hasPermission('d') ? hr.class('context-menu-separator')() : null,
+      this._hasPermission('d') ? menuItem('delete-instant', 'Delete ', 'Del', 'context-menu-danger') : null,
+    ).build(document);
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
-    menu.innerHTML = `
-      <div class="context-menu-item" data-context="preview">Preview</div>
-      ${this._hasPermission('y') ? `<div class="context-menu-item" data-context="share">Share</div>` : ''}
-      ${this._hasPermission('u') ? `<div class="context-menu-item" data-context="cut">Cut <span class="context-menu-hotkey">${mod}+X</span></div>` : ''}
-      <div class="context-menu-item" data-context="copy">Copy <span class="context-menu-hotkey">${mod}+C</span></div>
-      ${clipboard ? `<div class="context-menu-item" data-context="paste">Paste <span class="context-menu-hotkey">${mod}+V</span></div>` : ''}
-      ${this._hasPermission('d') ? '<hr class="context-menu-separator">' : ''}
-      ${this._hasPermission('d') ? `<div class="context-menu-item context-menu-danger" data-context="delete-instant">Delete <span class="context-menu-hotkey">Del</span></div>` : ''}
-    `;
 
     this.appendChild(menu);
 
@@ -3195,9 +3498,9 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _sortIndicator(field) {
-    if (this._sortField !== field) return '';
+    if (this._sortField !== field) return null;
     const arrow = (this._sortOrder === 'asc') ? '\u25B2' : '\u25BC';
-    return `<span class="sort-indicator active">${arrow}</span>`;
+    return span.class('sort-indicator active')(arrow);
   }
 
   async _handleSort(field) {
@@ -3363,13 +3666,14 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!versionsPanel || !versionsList) return;
 
     versionsPanel.classList.remove('hidden');
-    versionsList.innerHTML = '<div class="text-muted">Loading...</div>';
+    versionsList.textContent = '';
+    versionsList.appendChild(div.class('text-muted')('Loading...').build(document));
 
-    // Show info box for deleted files
+    // Hide the info box until we know snapshots exist — claiming
+    // "Any version can be safely restored" alongside "No snapshots"
+    // is contradictory. We re-show it below once we have results.
     const infoBox = versionsPanel.querySelector('.preview-versions-info');
-    if (infoBox) {
-      infoBox.classList.toggle('hidden', !entry._deleted);
-    }
+    if (infoBox) infoBox.classList.add('hidden');
 
     const isDir = entry.entry_type === ENTRY_TYPE_DIR;
     let versions;
@@ -3392,9 +3696,12 @@ class AeorFileBrowserBase extends HTMLElement {
 
     try {
       if (!versions || versions.length === 0) {
-        versionsList.innerHTML = '<div class="text-muted">No snapshots</div>';
+        versionsList.textContent = '';
+        versionsList.appendChild(div.class('text-muted')('No snapshots').build(document));
         return;
       }
+
+      if (infoBox) infoBox.classList.remove('hidden');
 
       // Current version is the first entry (newest-first from API)
       const currentHash = entry.hash || '';
@@ -3404,12 +3711,15 @@ class AeorFileBrowserBase extends HTMLElement {
       // shares (e.g. '.r..l...') hide the Restore button entirely.
       const canUpdate = this._hasPermission('u', entry);
 
-      versionsList.innerHTML = versions.map((v, idx) => {
+      versionsList.textContent = '';
+      const aeorSnapshotCard = elements['aeor-snapshot-card'];
+      for (let idx = 0; idx < versions.length; idx++) {
+        const v = versions[idx];
         const date = formatDate(v.timestamp);
         const size = v.size ? formatSize(v.size) : '';
         const isCurrent = idx === 0;
-        const snapshotId = escapeAttr(v.id || v.snapshot);
-        const snapshotName = escapeAttr(v.snapshot);
+        const snapshotId = v.id || v.snapshot;
+        const snapshotName = v.snapshot;
         const changeType = v.change_type || '';
 
         // Restorable unless: (a) it's the current version of a live file,
@@ -3419,17 +3729,18 @@ class AeorFileBrowserBase extends HTMLElement {
           && changeType !== 'deleted'
           && (!isCurrent || entry._deleted);
 
-        return `<aeor-snapshot-card
-            name="${snapshotName}"
-            snapshot-id="${snapshotId}"
-            date="${escapeAttr(date)}"
-            ${size ? `size="${escapeAttr(size)}"` : ''}
-            ${changeType ? `change-type="${escapeAttr(changeType)}"` : ''}
-            ${isCurrent && !entry._deleted ? 'current' : ''}
-            ${isRestorable ? 'restorable' : ''}
-            content-hash="${escapeAttr(v.content_hash || '')}"
-          ></aeor-snapshot-card>`;
-      }).join('');
+        let cardBuilder = aeorSnapshotCard
+          .name(snapshotName)
+          .snapshotId(snapshotId)
+          .date(date)
+          .contentHash(v.content_hash || '');
+        if (size) cardBuilder = cardBuilder.size(size);
+        if (changeType) cardBuilder = cardBuilder.changeType(changeType);
+        if (isCurrent && !entry._deleted) cardBuilder = cardBuilder.current('');
+        if (isRestorable) cardBuilder = cardBuilder.restorable('');
+
+        versionsList.appendChild(cardBuilder().build(document));
+      }
 
       // Bind click (preview version) and restore events
       versionsList.querySelectorAll('aeor-snapshot-card').forEach((card, idx) => {
@@ -3460,7 +3771,8 @@ class AeorFileBrowserBase extends HTMLElement {
         });
       });
     } catch (_) {
-      versionsList.innerHTML = '<div class="text-muted">Unable to load</div>';
+      versionsList.textContent = '';
+      versionsList.appendChild(div.class('text-muted')('Unable to load').build(document));
     }
   }
 
@@ -3478,7 +3790,8 @@ class AeorFileBrowserBase extends HTMLElement {
 
     const existingPreview = contentEl.firstElementChild;
     if (!existingPreview || existingPreview.tagName.toLowerCase() !== componentName) {
-      contentEl.innerHTML = `<${componentName}></${componentName}>`;
+      contentEl.textContent = '';
+      contentEl.appendChild(elements[componentName]().build(document));
     }
     const previewEl = contentEl.querySelector(componentName);
     if (previewEl) {
@@ -3580,16 +3893,26 @@ class AeorFileBrowserBase extends HTMLElement {
    */
   _confirm(title, message, isHtml = false, confirmLabel = 'Delete', confirmStyle = 'danger') {
     return new Promise((resolve) => {
-      const modal = document.createElement('aeor-modal');
+      const { p } = elements;
+      // The message body can be a plain string or pre-rendered HTML. For
+      // HTML mode we still need an innerHTML assignment because callers
+      // pass an HTML fragment string (e.g. for inline filename emphasis);
+      // for plain strings we use a text node which is the safe default.
+      const textEl = p.class('confirm-modal-text')().build(document);
+      if (isHtml) {
+        textEl.innerHTML = message;
+      } else {
+        textEl.textContent = message;
+      }
+
+      const modal = aeorModal()(
+        textEl,
+        div.class('modal-footer-actions')(
+          button.class('secondary small confirm-cancel')('Cancel'),
+          button.class(`${confirmStyle} small confirm-ok`)(confirmLabel),
+        ),
+      ).build(document);
       modal.title = title;
-      const bodyText = isHtml ? message : escapeHtml(message);
-      modal.innerHTML = `
-        <p class="confirm-modal-text">${bodyText}</p>
-        <div class="modal-footer-actions">
-          <button class="secondary small confirm-cancel">Cancel</button>
-          <button class="${confirmStyle} small confirm-ok">${escapeHtml(confirmLabel)}</button>
-        </div>
-      `;
       document.body.appendChild(modal);
 
       let resolved = false;

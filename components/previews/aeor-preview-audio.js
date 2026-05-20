@@ -1,18 +1,27 @@
 'use strict';
 
+import { elements } from '../../../aeor/elements.js';
+
+const { audio } = elements;
+
 class AeorPreviewAudio extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = '<audio controls class="preview-media"></audio>';
+    this._render();
+  }
+
+  _render() {
+    this.textContent = '';
+    this.appendChild(audio.controls('').class('preview-media')().build(document));
   }
 
   load() {
-    let audio = this.querySelector('audio');
-    if (!audio) {
-      this.innerHTML = '<audio controls class="preview-media"></audio>';
-      audio = this.querySelector('audio');
+    let audioEl = this.querySelector('audio');
+    if (!audioEl) {
+      this._render();
+      audioEl = this.querySelector('audio');
     }
-    audio.src = this.getAttribute('src') || '';
-    audio.load();
+    audioEl.src = this.getAttribute('src') || '';
+    audioEl.load();
   }
 }
 

@@ -312,7 +312,7 @@ input.preview-title {
   align-items: center;
   gap: 0.25rem;
   margin-bottom: 1rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
 }
 
@@ -488,10 +488,12 @@ input.preview-title {
   background-color: var(--bg-tertiary);
 }
 
-.grid-card-thumbnail img {
+.grid-card-thumbnail img,
+.grid-card-thumbnail canvas {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  display: block;
 }
 
 .grid-card-loading {
@@ -875,8 +877,13 @@ aeor-tab.hidden {
   margin-left: auto;
 }
 
-/* Hidden utility (display:none toggle) */
-.hidden { display: none; }
+/* Hidden utility (display:none toggle).
+   !important is intentional: this is a utility class whose entire job is to
+   force-hide an element regardless of what `display` value its base rule
+   sets. Without !important, attribute-selector rules like
+   `aeor-info-box[compact] { display: inline-block }` win on specificity
+   (0,1,1 > 0,1,0) and the element stays visible. */
+.hidden { display: none !important; }
 
 /* Invisible (visibility hidden, keeps layout) */
 .invisible { visibility: hidden; }

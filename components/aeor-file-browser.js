@@ -16,6 +16,13 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     this._fetchRelationships();
   }
 
+  // Called by aeor-app when this page becomes visible. The component
+  // is kept mounted across navigation, so without this, relationships
+  // created elsewhere (Sync page) wouldn't appear until full reload.
+  refresh() {
+    this._fetchRelationships();
+  }
+
   // ---------------------------------------------------------------------------
   // Abstract method implementations
   // ---------------------------------------------------------------------------

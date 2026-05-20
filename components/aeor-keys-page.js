@@ -1,6 +1,9 @@
 'use strict';
 
+import { elements } from '../../aeor/elements.js';
 import { AeorAdminPage } from './aeor-admin-page.js';
+
+const { div, label, input, button, span, code, select, option, svg, path, circle } = elements;
 
 /**
  * <aeor-keys-page> — Admin page for managing API keys.
@@ -60,28 +63,39 @@ export class AeorKeysPage extends AeorAdminPage {
     const status = this._getStatus(item);
     const created = item.created_at ? new Date(item.created_at).toLocaleDateString() : '\u2014';
     const expires = item.expires_at ? new Date(item.expires_at).toLocaleDateString() : '\u2014';
-    const user = this._esc(item.username || this._truncateId(item.user_id));
+    const user = item.username || this._truncateId(item.user_id);
 
     // Use the same .admin-card-* classes as Users/Groups/Snapshots so
     // typography is consistent across all admin pages.
-    return `
-      <div class="admin-card-header">
-        <div class="admin-card-title">
-          ${this._esc(item.label || 'Unnamed Key')}
-          <span class="badge ${status.cssClass}">${this._esc(status.label)}</span>
-        </div>
-      </div>
-      <div class="admin-card-meta" title="${this._escAttr(String(item.key_id || ''))}">${this._esc(this._truncateId(item.key_id))}</div>
-      <div class="admin-card-meta">User: ${user} \u00B7 Created ${created} \u00B7 Expires ${expires}</div>
-    `;
+    return div(
+      div.class('admin-card-header')(
+        div.class('admin-card-title')(
+          item.label || 'Unnamed Key',
+          ' ',
+          span.class(`badge ${status.cssClass}`)(status.label),
+        ),
+      ),
+      div.class('admin-card-meta').title(String(item.key_id || ''))(
+        this._truncateId(item.key_id),
+      ),
+      div.class('admin-card-meta')(
+        `User: ${user} \u00B7 Created ${created} \u00B7 Expires ${expires}`,
+      ),
+    ).build(document);
   }
 
   getActionButtons(selectedItems) {
     const revocable = selectedItems.filter((k) => !k.is_revoked);
-    if (revocable.length === 0) return '';
+    if (revocable.length === 0) return null;
 
-    const label = revocable.length === 1 ? 'Revoke' : `Revoke ${revocable.length} Keys`;
-    return `<aeor-confirm-button class="confirm-button-danger" label="${this._escAttr(label)}" confirmed-text="Revoked!" duration="1000"></aeor-confirm-button>`;
+    const labelText = revocable.length === 1 ? 'Revoke' : `Revoke ${revocable.length} Keys`;
+    const aeorConfirmButton = elements['aeor-confirm-button'];
+    return aeorConfirmButton
+      .class('confirm-button-danger')
+      .label(labelText)
+      .confirmedText('Revoked!')
+      .duration('1000')()
+      .build(document);
   }
 
   _bindActionBarEvents(bar, selectedItems) {
@@ -130,17 +144,18 @@ export class AeorKeysPage extends AeorAdminPage {
   renderCreateForm() {
     // The user selector is populated asynchronously after the modal opens.
     // We render a placeholder container and fill it in _populateUserSelector.
-    return `
-      <div id="keys-user-selector-slot"></div>
-      <div class="form-group">
-        <label class="form-label" for="keys-create-label">Label (optional)</label>
-        <input class="form-input" id="keys-create-label" type="text" placeholder="e.g. CI pipeline key">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="keys-create-expires">Expires in (days)</label>
-        <input class="form-input" id="keys-create-expires" type="number" value="365" min="1" max="3650">
-      </div>
-    `;
+    return div(
+      div.id('keys-user-selector-slot')(),
+      div.class('form-group')(
+        label.class('form-label').for('keys-create-label')('Label (optional)'),
+        input.class('form-input').id('keys-create-label').type('text').placeholder('e.g. CI pipeline key')(),
+      ),
+      div.class('form-group')(
+        label.class('form-label').for('keys-create-expires')('Expires in (days)'),
+        input.class('form-input').id('keys-create-expires').type('number')
+          .value('365').min('1').max('3650')(),
+      ),
+    ).build(document);
   }
 
   async submitCreate(modal) {
@@ -191,25 +206,40 @@ export class AeorKeysPage extends AeorAdminPage {
     const formContainer = modal.querySelector('.admin-modal-form');
     if (!formContainer) return;
 
-    formContainer.innerHTML = `
-      <div class="alert alert-warning">
-        This key will not be shown again. Copy it now and store it securely.
-      </div>
-      <div class="form-group">
-        <label class="form-label">API Key</label>
-        <div class="keys-copy-row">
-          <input class="form-input form-input-mono" id="keys-created-value" type="text" readonly
-            value="${this._escAttr(result.key || '')}">
-          <button class="primary small" id="keys-copy-btn" type="button">Copy</button>
-        </div>
-      </div>
-      ${result.label ? `<div class="detail-line">Label: ${this._esc(result.label)}</div>` : ''}
-      <div class="detail-line">Key ID: <code class="mono">${this._esc(String(result.key_id || ''))}</code></div>
-      <div class="detail-line">Expires: ${result.expires_at ? new Date(result.expires_at).toLocaleDateString() : '\u2014'}</div>
-      <div class="modal-footer-actions">
-        <button class="primary small" id="keys-done-btn" type="button">Done</button>
-      </div>
-    `;
+    formContainer.textContent = '';
+    formContainer.appendChild(
+      div(
+        div.class('alert alert-warning')(
+          'This key will not be shown again. Copy it now and store it securely.',
+        ),
+        div.class('form-group')(
+          label.class('form-label')('API Key'),
+          div.class('keys-copy-row')(
+            input
+              .class('form-input form-input-mono')
+              .id('keys-created-value')
+              .type('text')
+              .readonly('')
+              .value(result.key || '')(),
+            button.class('primary small').id('keys-copy-btn').type('button')('Copy'),
+          ),
+        ),
+        result.label
+          ? div.class('detail-line')('Label: ', result.label)
+          : null,
+        div.class('detail-line')(
+          'Key ID: ',
+          code.class('mono')(String(result.key_id || '')),
+        ),
+        div.class('detail-line')(
+          'Expires: ',
+          result.expires_at ? new Date(result.expires_at).toLocaleDateString() : '\u2014',
+        ),
+        div.class('modal-footer-actions')(
+          button.class('primary small').id('keys-done-btn').type('button')('Done'),
+        ),
+      ).build(document),
+    );
 
     const copyBtn = formContainer.querySelector('#keys-copy-btn');
     if (copyBtn) {
@@ -228,7 +258,6 @@ export class AeorKeysPage extends AeorAdminPage {
     const doneBtn = formContainer.querySelector('#keys-done-btn');
     if (doneBtn) {
       doneBtn.addEventListener('click', () => {
-        modal.close();
         modal.remove();
         this._loadItems();
       });
@@ -239,13 +268,12 @@ export class AeorKeysPage extends AeorAdminPage {
 
   renderEditForm(items) {
     const item = items[0];
-    return `
-      <div class="form-group">
-        <label class="form-label" for="keys-edit-label">Label</label>
-        <input class="form-input" id="keys-edit-label" type="text"
-          value="${this._escAttr(item.label || '')}" placeholder="e.g. CI pipeline key">
-      </div>
-    `;
+    return div.class('form-group')(
+      label.class('form-label').for('keys-edit-label')('Label'),
+      input.class('form-input').id('keys-edit-label').type('text')
+        .value(item.label || '')
+        .placeholder('e.g. CI pipeline key')(),
+    ).build(document);
   }
 
   async submitEdit(items, modal) {
@@ -274,37 +302,91 @@ export class AeorKeysPage extends AeorAdminPage {
     super.connectedCallback();
     this._allKeys = null;
     this._allKeysLoaded = false;
+    this._eyeballOn = false;
 
     const searchInput = this.querySelector('.admin-search');
-    if (searchInput) {
-      searchInput.placeholder = 'Showing your keys. Search to show all keys...';
+    const searchWrap = this.querySelector('.admin-search-wrap');
+    if (!searchInput || !searchWrap) return;
 
-      // Intercept the search input to lazy-load all keys on first search
-      searchInput.addEventListener('input', async () => {
-        const query = searchInput.value.trim();
+    searchInput.placeholder = 'Showing your keys. Search (or click the eye) to show all keys…';
 
-        if (query && !this._allKeysLoaded) {
-          // First search — load all keys
-          try {
-            const resp = await window.api('/auth/keys/admin');
-            if (resp.ok) {
-              const data = await resp.json();
-              this._allKeys = data.items || data;
-              this._allKeysLoaded = true;
-              this._items = this._allKeys;
-              this._renderList();
-            }
-          } catch (_) {
-            // Fall back to own keys filtering
-          }
-        } else if (!query && this._allKeysLoaded) {
-          // Cleared search — reset to own keys
-          this._allKeysLoaded = false;
-          this._allKeys = null;
-          await this._loadItems();
+    // Inject the eyeball toggle as a sibling of the input so the user can
+    // force "show all keys" without typing anything. Matches the legacy
+    // "type a single space" behaviour: any input OR the eyeball lazy-loads
+    // all keys; clearing both resets to own keys.
+    searchWrap.style.position = 'relative';
+    searchInput.style.paddingRight = '2.25rem';
+
+    const eyeballBtn = button
+      .type('button')
+      .class('admin-search-eyeball')
+      .ariaLabel('Show all keys')
+      .title('Show all keys')
+      .style(
+        'position:absolute;right:0.5rem;top:50%;transform:translateY(-50%);' +
+        'background:transparent;border:0;cursor:pointer;padding:0.25rem;' +
+        'color:var(--text-muted,#7d8590);display:flex;align-items:center;' +
+        'border-radius:0.25rem;',
+      )(
+        svg.width('18').height('18').viewBox('0 0 24 24')
+          .fill('none').stroke('currentColor').strokeWidth('2')
+          .strokeLinecap('round').strokeLinejoin('round')(
+            path.d('M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z')(),
+            circle.cx('12').cy('12').r('3')(),
+          ),
+      ).build(document);
+    searchWrap.appendChild(eyeballBtn);
+
+    const loadAll = async () => {
+      if (this._allKeysLoaded) return;
+      try {
+        const resp = await window.api('/auth/keys/admin');
+        if (resp.ok) {
+          const data = await resp.json();
+          this._allKeys = data.items || data;
+          this._allKeysLoaded = true;
+          this._items = this._allKeys;
+          this._renderList();
         }
-      });
-    }
+      } catch (_) {
+        // Fall back to own keys filtering
+      }
+    };
+
+    const resetToOwn = async () => {
+      this._allKeysLoaded = false;
+      this._allKeys = null;
+      await this._loadItems();
+    };
+
+    const refresh = async () => {
+      const hasInput = searchInput.value.length > 0;
+      const shouldShowAll = hasInput || this._eyeballOn;
+
+      if (shouldShowAll && !this._allKeysLoaded) {
+        await loadAll();
+      } else if (!shouldShowAll && this._allKeysLoaded) {
+        await resetToOwn();
+      }
+    };
+
+    // Any input — even a single space — triggers the lazy-load. We do NOT
+    // trim here; the base class already trims for actual filter matching,
+    // but the *trigger* must fire on raw input so legacy "type a space"
+    // muscle memory still works.
+    searchInput.addEventListener('input', refresh);
+
+    eyeballBtn.addEventListener('click', async () => {
+      this._eyeballOn = !this._eyeballOn;
+      eyeballBtn.style.color = this._eyeballOn
+        ? 'var(--accent, #f97316)'
+        : 'var(--text-muted, #7d8590)';
+      eyeballBtn.setAttribute(
+        'aria-label',
+        this._eyeballOn ? 'Hide other users\' keys' : 'Show all keys',
+      );
+      await refresh();
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────
@@ -326,18 +408,17 @@ export class AeorKeysPage extends AeorAdminPage {
       const users = data.items || [];
 
       if (users.length > 1) {
-        const options = users.map((u) =>
-          `<option value="${this._escAttr(String(u.user_id))}">${this._esc(String(u.username))}</option>`
-        ).join('');
-
-        slot.innerHTML = `
-          <div class="form-group">
-            <label class="form-label" for="keys-create-user">User</label>
-            <select class="form-input" id="keys-create-user">
-              ${options}
-            </select>
-          </div>
-        `;
+        slot.textContent = '';
+        slot.appendChild(
+          div.class('form-group')(
+            label.class('form-label').for('keys-create-user')('User'),
+            select.class('form-input').id('keys-create-user')(
+              ...users.map((u) =>
+                option.value(String(u.user_id))(String(u.username)),
+              ),
+            ),
+          ).build(document),
+        );
       }
     } catch (_) {
       // No user selector — fall back to default (own user)

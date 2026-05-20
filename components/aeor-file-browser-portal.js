@@ -1,7 +1,19 @@
 'use strict';
 
+import { elements } from '../../aeor/elements.js';
 import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
 import { ENTRY_TYPE_DIR } from './aeor-file-view-shared.js';
+
+const { a } = elements;
+
+// Trigger a browser download via a transient <a download> element.
+// Centralized so callers don't reach for document.createElement.
+function _triggerDownload(blob, filename) {
+  const href = URL.createObjectURL(blob);
+  const link = a.href(href).download(filename)().build(document);
+  link.click();
+  URL.revokeObjectURL(href);
+}
 
 export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   connectedCallback() {
@@ -509,11 +521,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
         const response = await window.api(this.fileUrl(filePath));
         if (!response.ok) throw new Error(`${response.status}`);
         const blob = await response.blob();
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = tab.preview_entry.name;
-        link.click();
-        URL.revokeObjectURL(link.href);
+        _triggerDownload(blob, tab.preview_entry.name);
       } catch (error) {
         if (window.aeorToast)
           window.aeorToast('Download failed: ' + error.message, 'error');
@@ -545,11 +553,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
       const blob = await response.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'aeordb-download.zip';
-      link.click();
-      URL.revokeObjectURL(link.href);
+      _triggerDownload(blob, 'aeordb-download.zip');
     } catch (error) {
       if (window.aeorToast) {
         window.aeorToast('Download failed: ' + error.message, 'error');
