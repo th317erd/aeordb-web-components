@@ -1411,16 +1411,22 @@ a:focus-visible,
   border: 1px solid var(--border, #30363d);
   border-radius: 0.75rem;
   min-width: 22.5rem;
-  max-width: 35rem;
+  max-width: var(--modal-max-width, 35rem);
   width: 100%;
   max-height: 85vh;
-  overflow-x: hidden;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   animation: aeor-modal-scale-in 0.15s ease;
 }
 
+aeor-modal[wide] {
+  --modal-max-width: 50rem;
+}
+
 .aeor-modal__header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1452,9 +1458,33 @@ a:focus-visible,
 }
 
 .aeor-modal__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 1.25rem;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+.aeor-modal__footer {
+  flex: 0 0 auto;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border, #30363d);
+  display: flex;
+  gap: 0.625rem;
+  justify-content: flex-end;
+}
+
+.aeor-modal__footer:empty {
+  display: none;
+}
+
+/* When a `.modal-footer-actions` is lifted into the footer slot by the
+   modal's _buildDOM, its legacy `margin-top: 1rem` would push the
+   buttons away from the slot's top padding. The slot already has its
+   own padding and gap; suppress the legacy margin in that context. */
+.aeor-modal__footer > .modal-footer-actions {
+  margin-top: 0;
 }
 
 /* Form elements inside modals */
