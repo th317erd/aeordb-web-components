@@ -2,8 +2,38 @@
 
 import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
 import { escapeHtml, escapeAttr, directionArrow } from './aeor-file-view-shared.js';
+import { elements } from '../../aeor/elements.js';
 
 const ENTRY_TYPE_DIR = 3;
+
+const { button: btnEl, svg: svgEl, path: pathEl } = elements;
+
+// Feather-style folder glyph. Inline SVG so the button stays readable
+// across themes (stroke=currentColor tracks the .secondary button's
+// text color) and at any font scale (sized in em).
+function _folderIconSvg() {
+  return svgEl
+    .width('1em').height('1em').viewBox('0 0 24 24')
+    .fill('none').stroke('currentColor').strokeWidth('2')
+    .strokeLinecap('round').strokeLinejoin('round')(
+      pathEl.d('M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z')(),
+    );
+}
+
+// Resolve the active relationship's local_path + the tab's current
+// in-browser path to an absolute local filesystem path. Returns null
+// when the relationship isn't cached yet or has no local_path. The
+// tab.path is the relationship-relative path the user is viewing
+// ("/" → the sync root; "/photos/2026" → that subdir).
+function _resolveLocalPath(relationships, tab) {
+  if (!tab || !tab.relationship_id) return null;
+  const rel = relationships.find((r) => r.id === tab.relationship_id);
+  if (!rel || !rel.local_path) return null;
+
+  const base = rel.local_path.replace(/\/+$/, '');  // strip trailing slashes
+  const rest = (tab.path || '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  return rest ? `${base}/${rest}` : base;
+}
 
 export class AeorFileBrowser extends AeorFileBrowserBase {
   constructor() {
@@ -96,6 +126,56 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   rootLabel() {
     const tab = this._activeTab();
     return (tab && tab.relationship_name) ? tab.relationship_name : 'Database';
+  }
+
+  // Inject an "Open Locally" button into the directory toolbar, to
+  // the left of Snapshot / New Folder / Upload. Reveals the current
+  // tab path in the OS file manager (Nautilus / Finder / Explorer)
+  // via the open_local_folder Tauri command.
+  //
+  // Skipped (returns null) when:
+  //   - not running inside Tauri (no invoke fn available — browser
+  //     preview can't shell out to a file manager)
+  //   - the tab has no relationship_id yet (e.g. the "pick a
+  //     relationship" interstitial)
+  //   - the cached relationship has no local_path (defensive — every
+  //     real relationship has one, but the cache could be stale)
+  //
+  // We don't gate on whether the local folder exists. If a pull-only
+  // relationship hasn't synced yet, the local dir won't exist and the
+  // Tauri command will toast the error to the user. That's clearer
+  // than silently hiding the button.
+  directoryActions(tab) {
+    const invokeAvailable = !!(window.__TAURI_INTERNALS__?.invoke
+                            || window.__TAURI__?.core?.invoke);
+    if (!invokeAvailable) return null;
+
+    const localPath = _resolveLocalPath(this._relationships, tab);
+    if (!localPath) return null;
+
+    return btnEl
+      .class('secondary small open-locally-button')
+      .title(`Open ${localPath} in the system file manager`)
+      .dataPath(localPath)
+      .onClick((event) => {
+        event.preventDefault();
+        const btn = event.currentTarget;
+        const path = btn.dataset.path;
+        if (!path) return;
+        const invoke = window.__TAURI_INTERNALS__?.invoke
+                    || window.__TAURI__?.core?.invoke;
+        invoke('open_local_folder', { path })
+          .catch((error) => {
+            const msg = (typeof error === 'string') ? error : (error?.message || String(error));
+            if (window.aeorToast)
+              window.aeorToast(`Couldn't open ${path}: ${msg}`, 'error', 8000);
+            else
+              console.warn('open_local_folder failed:', error);
+          });
+      })(
+        _folderIconSvg(),
+        'Open Locally',
+      ).build(document);
   }
 
   // Override _saveState to persist relationship metadata

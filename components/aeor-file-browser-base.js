@@ -380,6 +380,21 @@ class AeorFileBrowserBase extends HTMLElement {
     return '';
   }
 
+  /**
+   * Extra action buttons rendered into the directory toolbar, to the
+   * LEFT of Snapshot / New Folder / Upload. Subclasses can return a
+   * Node, an array of Nodes, an HTML string, or null. Use this to
+   * surface affordances that only make sense for a particular subclass
+   * (e.g. the desktop client's "Open Locally" button, which has no
+   * meaning in the portal).
+   *
+   * Called fresh on every directory render, so subclasses can safely
+   * key off the active tab's relationship + path without caching.
+   */
+  directoryActions(tab) {
+    return null;
+  }
+
   // -------------------------------------------------------------------------
   // State management
   // -------------------------------------------------------------------------
@@ -577,6 +592,10 @@ class AeorFileBrowserBase extends HTMLElement {
     const headerActions = div.class('page-header-actions')(
       configActions ? div.class('config-actions-bar')(...configActions) : null,
       button.class('secondary small header-paste-btn hidden')('Paste'),
+      // Subclass-injected actions (e.g. desktop client's "Open Locally").
+      // Placed BEFORE the Snapshot/New Folder/Upload group so they sit
+      // on the left side of those affordances.
+      this.directoryActions(tab),
       this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
       this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
       this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
@@ -986,6 +1005,8 @@ class AeorFileBrowserBase extends HTMLElement {
         const headerActions = div.class('page-header-actions')(
           configActions ? div.class('config-actions-bar')(...configActions) : null,
           button.class('secondary small header-paste-btn hidden')('Paste'),
+          // Subclass-injected actions, same as the full render path.
+          this.directoryActions(tab),
           this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
           this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
           this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,

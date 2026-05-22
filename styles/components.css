@@ -1241,6 +1241,14 @@ aeor-tab.hidden {
   color: var(--text-muted, #8b949e);
 }
 
+/* "Open Locally" button — folder-icon + label combo in the
+   directory toolbar. The parent button is inline-flex (from the
+   generic .secondary rule), so we just need a small gap between
+   the SVG glyph and the text label. */
+.open-locally-button {
+  gap: 0.35rem;
+}
+
 /* Snapshot button flash states */
 .snapshot-button.saved {
   background: var(--success, #3fb950);
