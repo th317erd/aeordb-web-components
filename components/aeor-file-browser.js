@@ -6,7 +6,18 @@ import { elements } from '../../aeor/elements.js';
 
 const ENTRY_TYPE_DIR = 3;
 
-const { button: btnEl, svg: svgEl, path: pathEl } = elements;
+const { button: btnEl, svg: svgEl, path: pathEl, span: spanEl } = elements;
+
+// Per-entry sync state → CSS modifier class + tooltip. Centralized so
+// the dot's color and hover-text stay in lockstep when a new state is
+// added (or a state is renamed in the engine's API serialization).
+const _SYNC_DOT_MAP = {
+  synced:       { cls: 'aeor-sync-dot--synced',     title: 'Synced'             },
+  pending_push: { cls: 'aeor-sync-dot--pending',    title: 'Waiting to upload'  },
+  pending_pull: { cls: 'aeor-sync-dot--pending',    title: 'Waiting to download'},
+  error:        { cls: 'aeor-sync-dot--error',      title: 'Sync error'         },
+  not_synced:   { cls: 'aeor-sync-dot--not-synced', title: 'Not synced'         },
+};
 
 // Feather-style folder glyph. Inline SVG so the button stays readable
 // across themes (stroke=currentColor tracks the .secondary button's
@@ -126,6 +137,29 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   rootLabel() {
     const tab = this._activeTab();
     return (tab && tab.relationship_name) ? tab.relationship_name : 'Database';
+  }
+
+  // Render a small colored sync-state dot for each file/directory
+  // entry. The desktop client surfaces this; the portal subclass
+  // inherits the base's null default so its file rows stay dot-free.
+  //
+  // Colors:
+  //   green  → synced
+  //   yellow → pending_push / pending_pull (queued for sync)
+  //   red    → error
+  //   gray   → not_synced (most directories at first sight)
+  //
+  // The dot is a single span; CSS in main.css gives it size and the
+  // per-state background color. The `title` attribute supplies the
+  // hover tooltip so the meaning is discoverable without a legend.
+  syncStatusIndicator(entry) {
+    const key  = entry && entry.sync_status;
+    const meta = _SYNC_DOT_MAP[key] || _SYNC_DOT_MAP.not_synced;
+    return spanEl
+      .class(`aeor-sync-dot ${meta.cls}`)
+      .title(meta.title)
+      .ariaLabel(meta.title)()
+      .build(document);
   }
 
   // Inject an "Open Locally" button into the directory toolbar, to

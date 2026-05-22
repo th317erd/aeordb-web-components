@@ -395,6 +395,27 @@ class AeorFileBrowserBase extends HTMLElement {
     return null;
   }
 
+  /**
+   * Per-entry status indicator rendered inline with the filename in
+   * BOTH list and grid views. Subclasses can return a Node (typically
+   * a small status dot) or null to skip. Default: null — the portal
+   * subclass inherits this and renders nothing.
+   *
+   * Used by the desktop client to surface per-file sync state
+   * (entry.sync_status: synced / pending_push / pending_pull / error /
+   * not_synced) as a colored dot. The base intentionally doesn't
+   * read entry.sync_status itself — that field is only meaningful in
+   * client contexts where a SyncMetadataStore exists, and we don't
+   * want the portal to start showing dots if the engine ever decides
+   * to populate the field there too.
+   *
+   * Called fresh per-row on every render, so subclasses don't need
+   * to cache: a re-listing after a sync naturally updates the dot.
+   */
+  syncStatusIndicator(entry) {
+    return null;
+  }
+
   // -------------------------------------------------------------------------
   // State management
   // -------------------------------------------------------------------------
@@ -759,8 +780,12 @@ class AeorFileBrowserBase extends HTMLElement {
       .dataType(String(entry.entry_type));
     if (isDeleted) rowBuilder = rowBuilder.dataDeleted('true');
 
+    // Subclass-injected status indicator (e.g. desktop client's sync
+    // dot). Returns Node | null. Null falls through to nothing rendered.
+    const statusDot = this.syncStatusIndicator(entry);
+
     return rowBuilder(
-      td(fileIconSpan, nameSpan),
+      td(fileIconSpan, nameSpan, statusDot),
       td(size),
       td(created),
       modifiedCell,
@@ -822,10 +847,16 @@ class AeorFileBrowserBase extends HTMLElement {
       if (isDeleted) cardBuilder = cardBuilder.dataDeleted('true');
 
       const truncatedName = this._truncate(entry.name, 20);
+      // Subclass-injected per-entry status indicator. Lives next to
+      // the truncated filename so it stays close to the visual anchor
+      // for that file in either view mode.
+      const statusDot = this.syncStatusIndicator(entry);
+
       const cardEl = cardBuilder(
         thumbnailEl,
         div.class('grid-card-name' + (isDeleted ? ' deleted-name' : '')).title(entry.name)(
           truncatedName,
+          statusDot,
         ),
         div.class('grid-card-meta')(
           isDeleted ? span.class('text-danger')('Deleted') : size,
