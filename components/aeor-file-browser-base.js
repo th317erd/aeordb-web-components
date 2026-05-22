@@ -2416,7 +2416,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const typeOptions = ['string', 'u64', 'i64', 'f64', 'bool', 'timestamp', 'trigram', 'phonetic']
       .map((t) => option.value(t)(t));
 
-    const modal = aeorModal()(
+    const modal = aeorModal(
       fieldGroup('Field Name',
         input.type('text').class('index-field-name modal-field-input').placeholder('e.g. email')(),
       ),
@@ -2507,7 +2507,7 @@ class AeorFileBrowserBase extends HTMLElement {
         inputBuilder,
       );
 
-    const modal = aeorModal()(
+    const modal = aeorModal(
       fieldGroup('Content Type',
         input.type('text').class('parser-content-type modal-field-input').placeholder('e.g. application/pdf')(),
       ),
@@ -2581,7 +2581,7 @@ class AeorFileBrowserBase extends HTMLElement {
         inputBuilder,
       );
 
-    const modal = aeorModal()(
+    const modal = aeorModal(
       fieldGroup('Origins (comma-separated)',
         input.type('text').class('cors-origins modal-field-input')
           .placeholder('e.g. https://example.com, https://app.example.com')(),
@@ -2658,7 +2658,7 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _promptNewFolder() {
-    const modal = aeorModal()(
+    const modal = aeorModal(
       div.class('modal-field-group')(
         label.class('modal-field-label')('Folder Name'),
         input.type('text').class('new-folder-name modal-field-input').placeholder('my-folder')(),
@@ -3028,7 +3028,7 @@ class AeorFileBrowserBase extends HTMLElement {
   async _showShareModal(paths) {
     if (!paths || paths.length === 0) return;
 
-    const modal = aeorModal()(
+    const modal = aeorModal(
       div.class('share-loading')('Loading...'),
     ).build(document);
     modal.title = 'Share';
@@ -3905,7 +3905,7 @@ class AeorFileBrowserBase extends HTMLElement {
         textEl.textContent = message;
       }
 
-      const modal = aeorModal()(
+      const modal = aeorModal(
         textEl,
         div.class('modal-footer-actions')(
           button.class('secondary small confirm-cancel')('Cancel'),
