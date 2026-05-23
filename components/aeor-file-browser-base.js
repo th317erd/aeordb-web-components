@@ -686,29 +686,6 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderListingContent(tab, viewMode) {
     viewMode = viewMode || tab.view_mode || 'list';
 
-    // Loud surface for fetch errors (typically a 502 BadGateway from
-    // the client's proxy when the engine 403s a path the user can't
-    // descend into). Render BEFORE the loading/empty checks so a
-    // failed fetch doesn't masquerade as "the folder is just empty."
-    // See aeordb-client/bot-docs/bug-reports/2026-05-22-pull-sync-
-    // silently-treats-permission-failures-as-success.md (DB team
-    // recommendation #3).
-    if (tab._fetchError) {
-      const aeorInfoBox = elements['aeor-info-box'];
-      const isBadGateway = /(\b502\b|bad gateway|forbidden|\b403\b)/i.test(tab._fetchError);
-      const headline = isBadGateway
-        ? 'The server denied access to this folder.'
-        : 'Couldn’t load this folder.';
-      const detail = isBadGateway
-        ? 'You may have lost permission since your last visit, or the engine is misconfigured. Contact your admin if you expect to have access.'
-        : 'The client received an error from the engine. Try again, or check the activity feed and dev-tools console for details.';
-      return aeorInfoBox.warning('')(
-        div(headline),
-        div.class('text-muted')(detail),
-        div.class('text-muted').style('margin-top:0.5rem;font-size:0.8125rem;')(`Error: ${tab._fetchError}`),
-      ).build(document);
-    }
-
     if (tab.loading && tab.entries.length === 0) {
       return div.class('empty-state')(' ').build(document);
     }
@@ -2167,19 +2144,9 @@ class AeorFileBrowserBase extends HTMLElement {
       const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
-      tab._fetchError = null;
     } catch (error) {
       console.error('Failed to fetch listing:', error);
       tab.entries = [];
-      // Capture so the listing render can surface this as a visible
-      // banner instead of falling through to the "this directory is
-      // empty" empty-state. A 502/403/etc from the engine should NOT
-      // look identical to "the folder exists and has no files" — that
-      // collision is the silent-permission-failure pattern the DB team
-      // flagged in their 2026-05-22 report. Distinguishing the two
-      // means the user can tell "permission denied / engine error"
-      // from "this folder really is empty" without opening devtools.
-      tab._fetchError = (error && error.message) ? String(error.message) : String(error);
     }
 
     // Apply cached shared-with-me permissions to items that lack them
