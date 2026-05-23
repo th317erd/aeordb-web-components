@@ -139,15 +139,17 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     return (tab && tab.relationship_name) ? tab.relationship_name : 'Database';
   }
 
-  // Render a small colored sync-state dot for each file entry. Desktop
+  // Render a small colored sync-state dot for each entry. Desktop
   // client only; the portal subclass inherits the base's null default
   // so its file rows stay dot-free.
   //
-  // Skipped for directories (entry_type === 3): a folder doesn't have a
-  // single sync state — it's a container — and showing a green dot on
-  // a folder that's locally present but partially synced inside reads
-  // as a lie. The per-file dot conveys the right granularity; the
-  // folder-level state belongs in a future affordance.
+  // For DIRECTORIES, entry.sync_status comes back from the backend as
+  // a rollup of all descendants (see folder_rollup_status in
+  // aeordb-client-lib/src/api/routes/files.rs). So a directory whose
+  // subtree has any erroring file shows red; any in-flight file shows
+  // yellow; otherwise the directory follows the most accurate
+  // synced/not-synced state available. No client-side branching
+  // needed — the same _SYNC_DOT_MAP entry serves both.
   //
   // Colors (driven by entry.sync_status from the backend):
   //   green  → synced
@@ -159,7 +161,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   // per-state background color. The `title` attribute supplies the
   // hover tooltip so the meaning is discoverable without a legend.
   syncStatusIndicator(entry) {
-    if (!entry || entry.entry_type === 3) return null;
+    if (!entry) return null;
     const key  = entry.sync_status;
     const meta = _SYNC_DOT_MAP[key] || _SYNC_DOT_MAP.not_synced;
     return spanEl
