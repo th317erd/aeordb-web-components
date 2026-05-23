@@ -686,6 +686,45 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderListingContent(tab, viewMode) {
     viewMode = viewMode || tab.view_mode || 'list';
 
+    // Render a banner for fetch errors whose CAUSE is not a permission
+    // denial — connection failures, server 5xx, parse errors. The
+    // 4xx (upstream_rejected) case deliberately falls through to the
+    // empty-state below to avoid leaking the engine's denial-vs-
+    // nonexistent distinction (DB team's 2026-05-23 retraction). The
+    // category comes from the backend's categorized ClientError, NOT
+    // from regex-matching the error message — categories are the
+    // stable contract.
+    if (tab._fetchError && tab._fetchError.category &&
+        tab._fetchError.category !== 'upstream_rejected') {
+      const aeorInfoBox = elements['aeor-info-box'];
+      const { category, message } = tab._fetchError;
+      let headline, detail;
+      switch (category) {
+        case 'upstream_unreachable':
+          headline = 'Cannot reach the server.';
+          detail   = 'Check that the engine is running and your network connection is up.';
+          break;
+        case 'upstream_server':
+          headline = 'The server reported an internal error.';
+          detail   = 'Try again, or contact your admin.';
+          break;
+        case 'upstream_protocol':
+          headline = 'The server returned an unexpected response.';
+          detail   = 'The client may be out of date.';
+          break;
+        default:
+          // Any other non-rejection category (e.g. server-internal
+          // errors raised inside our own client code) — generic copy.
+          headline = 'Couldn’t load this folder.';
+          detail   = 'The client received an error. Try again, or check the activity feed and dev-tools for details.';
+      }
+      return aeorInfoBox.warning('')(
+        div(headline),
+        div.class('text-muted')(detail),
+        div.class('text-muted').style('margin-top:0.5rem;font-size:0.8125rem;')(`Error: ${message}`),
+      ).build(document);
+    }
+
     if (tab.loading && tab.entries.length === 0) {
       return div.class('empty-state')(' ').build(document);
     }
@@ -2151,9 +2190,23 @@ class AeorFileBrowserBase extends HTMLElement {
       const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
+      tab._fetchError = null;
     } catch (error) {
       console.error('Failed to fetch listing:', error);
       tab.entries = [];
+      // Capture the structured category from the throw site (see
+      // AeorFileBrowser.browse). Render-side decides whether to surface
+      // it as a banner or fall through to the empty-state — see
+      // _renderListingContent. We intentionally DON'T render a banner
+      // for 4xx (upstream_rejected) to avoid leaking the engine's
+      // denial-vs-nonexistent distinction (DB team's 2026-05-23
+      // retraction); those land in the same empty-state as a truly
+      // empty folder.
+      tab._fetchError = {
+        category: (error && error.category) || null,
+        status:   (error && error.status) || null,
+        message:  (error && error.message) ? String(error.message) : String(error),
+      };
     }
 
     // Apply cached shared-with-me permissions to items that lack them

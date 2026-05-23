@@ -142,7 +142,22 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       : `/api/v1/browse/${tab.relationship_id}`;
     const url = `${baseUrl}?limit=${limit}&offset=${offset}`;
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+    if (!response.ok) {
+      // Parse the structured error body so the render path can branch
+      // on `category` (upstream_unreachable / upstream_server /
+      // upstream_protocol / upstream_rejected) and show an accurate
+      // message instead of conflating connection-refused with "server
+      // denied access." Body shape comes from ClientError::into_response
+      // in aeordb-client-lib/src/error.rs.
+      let body = null;
+      try { body = await response.json(); } catch (_) { /* non-JSON */ }
+      const err = new Error(
+        (body && body.error) || `Request failed: ${response.status}`,
+      );
+      err.status   = response.status;
+      err.category = (body && body.category) || null;
+      throw err;
+    }
     return response.json();
   }
 
