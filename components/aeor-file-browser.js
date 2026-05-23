@@ -1,7 +1,7 @@
 'use strict';
 
 import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
-import { escapeHtml, escapeAttr, directionArrow } from './aeor-file-view-shared.js';
+import { escapeHtml, escapeAttr, directionArrow, openFolder } from './aeor-file-view-shared.js';
 import { elements } from '../../aeor/elements.js';
 
 const ENTRY_TYPE_DIR = 3;
@@ -174,25 +174,24 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   // Inject an "Open Locally" button into the directory toolbar, to
   // the left of Snapshot / New Folder / Upload. Reveals the current
   // tab path in the OS file manager (Nautilus / Finder / Explorer)
-  // via the open_local_folder Tauri command.
+  // via the openFolder() helper (POST /api/v1/open-folder on the
+  // local aeordb-client). That endpoint has its own absolute/exists/
+  // is_dir guards, so we don't repeat them here.
   //
   // Skipped (returns null) when:
-  //   - not running inside Tauri (no invoke fn available — browser
-  //     preview can't shell out to a file manager)
   //   - the tab has no relationship_id yet (e.g. the "pick a
   //     relationship" interstitial)
   //   - the cached relationship has no local_path (defensive — every
   //     real relationship has one, but the cache could be stale)
   //
-  // We don't gate on whether the local folder exists. If a pull-only
-  // relationship hasn't synced yet, the local dir won't exist and the
-  // Tauri command will toast the error to the user. That's clearer
-  // than silently hiding the button.
+  // We DON'T gate on whether the local folder exists — if a pull-only
+  // relationship hasn't synced yet, the endpoint will 404 and the
+  // openFolder helper logs to the console. We also don't gate on
+  // Tauri being present: the HTTP endpoint runs server-side regardless,
+  // and the aeordb-client always serves it. The portal subclass
+  // doesn't override directoryActions and inherits the base's null
+  // default, so this only renders for the desktop client.
   directoryActions(tab) {
-    const invokeAvailable = !!(window.__TAURI_INTERNALS__?.invoke
-                            || window.__TAURI__?.core?.invoke);
-    if (!invokeAvailable) return null;
-
     const localPath = _resolveLocalPath(this._relationships, tab);
     if (!localPath) return null;
 
@@ -202,19 +201,8 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       .dataPath(localPath)
       .onClick((event) => {
         event.preventDefault();
-        const btn = event.currentTarget;
-        const path = btn.dataset.path;
-        if (!path) return;
-        const invoke = window.__TAURI_INTERNALS__?.invoke
-                    || window.__TAURI__?.core?.invoke;
-        invoke('open_local_folder', { path })
-          .catch((error) => {
-            const msg = (typeof error === 'string') ? error : (error?.message || String(error));
-            if (window.aeorToast)
-              window.aeorToast(`Couldn't open ${path}: ${msg}`, 'error', 8000);
-            else
-              console.warn('open_local_folder failed:', error);
-          });
+        const path = event.currentTarget.dataset.path;
+        if (path) openFolder(path);
       })(
         _folderIconSvg(),
         'Open Locally',
