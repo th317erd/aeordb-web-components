@@ -781,11 +781,14 @@ class AeorFileBrowserBase extends HTMLElement {
     if (isDeleted) rowBuilder = rowBuilder.dataDeleted('true');
 
     // Subclass-injected status indicator (e.g. desktop client's sync
-    // dot). Returns Node | null. Null falls through to nothing rendered.
+    // dot). Returns Node | null. Placed at the START of the name cell
+    // (before the file icon) so it stays anchored to the row's left
+    // edge regardless of how long the filename is — long names that
+    // overflow into ellipsis won't clip the dot.
     const statusDot = this.syncStatusIndicator(entry);
 
     return rowBuilder(
-      td(fileIconSpan, nameSpan, statusDot),
+      td(statusDot, fileIconSpan, nameSpan),
       td(size),
       td(created),
       modifiedCell,
@@ -847,16 +850,20 @@ class AeorFileBrowserBase extends HTMLElement {
       if (isDeleted) cardBuilder = cardBuilder.dataDeleted('true');
 
       const truncatedName = this._truncate(entry.name, 20);
-      // Subclass-injected per-entry status indicator. Lives next to
-      // the truncated filename so it stays close to the visual anchor
-      // for that file in either view mode.
+      // Subclass-injected status indicator. Lives as a direct child of
+      // the card (NOT inside .grid-card-name) so CSS can absolute-
+      // position it to the top-left corner of the card via
+      // `.grid-card > .aeor-sync-dot`. That keeps the dot anchored
+      // to the card's leading corner regardless of truncated-name
+      // length or thumbnail content — same "far left of the entry"
+      // intent as the list view, expressed correctly for a 2D card.
       const statusDot = this.syncStatusIndicator(entry);
 
       const cardEl = cardBuilder(
+        statusDot,
         thumbnailEl,
         div.class('grid-card-name' + (isDeleted ? ' deleted-name' : '')).title(entry.name)(
           truncatedName,
-          statusDot,
         ),
         div.class('grid-card-meta')(
           isDeleted ? span.class('text-danger')('Deleted') : size,
