@@ -55,6 +55,15 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   connectedCallback() {
     super.connectedCallback();
     this._fetchRelationships();
+    this._connectSyncActivityStream();
+  }
+
+  disconnectedCallback() {
+    if (super.disconnectedCallback) super.disconnectedCallback();
+    if (this._syncActivitySource) {
+      this._syncActivitySource.close();
+      this._syncActivitySource = null;
+    }
   }
 
   // Called by aeor-app when this page becomes visible. The component
@@ -62,6 +71,62 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   // created elsewhere (Sync page) wouldn't appear until full reload.
   refresh() {
     this._fetchRelationships();
+  }
+
+  // Subscribe to the client's sync-activity SSE stream so a push or
+  // pull that affected files surfaces in the open tab without a manual
+  // reload. Without this, dropping files into the local sync folder
+  // pushes them to the remote (good), shows a toast (good), but the
+  // file-browser listing keeps showing the pre-push snapshot until the
+  // user clicks back into the folder. The toast tells the user
+  // something happened — the listing has to follow.
+  //
+  // aeor-toasts.js also subscribes to the same endpoint; we take a
+  // separate connection rather than route through a shared bus because
+  // EventSource auto-reconnects per instance and there's no existing
+  // pub/sub layer between the two consumers. If we ever grow more
+  // listeners, factor out a single shared subscription.
+  _connectSyncActivityStream() {
+    if (this._syncActivitySource) return;
+    try {
+      this._syncActivitySource = new EventSource('/api/v1/events');
+      this._syncActivitySource.addEventListener('sync_activity', (event) => {
+        let data;
+        try { data = JSON.parse(event.data); } catch (_) { return; }
+        if (!data || !data.relationship_id) return;
+
+        // Refresh only when files actually moved. A "0 pulled, 0 pushed"
+        // heartbeat-style event would otherwise re-fetch every cycle for
+        // no UI change. The numeric field reflects pulled + deleted +
+        // symlinks-affected on the backend (sync/activity.rs::log_pull
+        // and log_full_sync), so non-zero means the listing has new
+        // content to show.
+        if ((data.files_affected || 0) === 0) return;
+
+        // Refresh every open tab matching the affected relationship.
+        // Most of the time that's just the active tab, but multi-tab
+        // users browsing the same relationship in two tabs should see
+        // both update.
+        for (const tab of this._tabs || []) {
+          if (tab.relationship_id !== data.relationship_id) continue;
+          if (tab.id === this._active_tab_id) {
+            // Active tab: re-fetch via the standard listing pipeline so
+            // the dimmed-loading + repopulate flow runs (same path the
+            // user would get from clicking the breadcrumb).
+            this._fetchListing();
+          } else {
+            // Background tab: mark stale; it'll re-fetch on activation.
+            tab._needsRefresh = true;
+          }
+        }
+      });
+      // EventSource reconnects automatically on transient failures.
+      // The onerror handler exists only to suppress noisy console
+      // warnings during normal reconnects — log nothing.
+      this._syncActivitySource.onerror = () => {};
+    } catch (error) {
+      console.warn('sync-activity stream unavailable:', error);
+    }
   }
 
   // ---------------------------------------------------------------------------

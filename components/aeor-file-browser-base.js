@@ -1817,9 +1817,16 @@ class AeorFileBrowserBase extends HTMLElement {
 
     this._saveState();
 
-    // Load data if this tab hasn't been fetched yet
+    // Load data if this tab hasn't been fetched yet, OR if a background-
+    // tab refresh was queued while we weren't looking (subclass-set
+    // `_needsRefresh` flag — e.g. an SSE sync-activity event for this
+    // relationship landed while a different tab was active).
     const tab = this._activeTab();
-    if (tab && tab.entries.length === 0 && !tab.loading) {
+    const needsRefresh = tab && (tab._needsRefresh === true);
+    if (tab && needsRefresh) {
+      tab._needsRefresh = false;
+      this._fetchListing();
+    } else if (tab && tab.entries.length === 0 && !tab.loading) {
       this._fetchListing();
     } else {
       this._hydratePreview();
