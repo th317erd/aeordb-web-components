@@ -6,6 +6,7 @@ import {
   escapeHtml, escapeAttr, isImageFile, isVideoFile, isAudioFile,
   flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
+import { loadPrefs, getPref, mergePrefs } from '../preferences.js';
 import '../../aeor/components/aeor-modal.js';
 import '../../aeor/components/aeor-confirm-button.js';
 import '../../aeor/components/aeor-info-box.js';
@@ -204,7 +205,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._active_tab_id = null;
     this._tab_counter = 0;
     this._scroll_listener = null;
-    this._showHidden = localStorage.getItem('aeordb-show-hidden') === 'true';
+    this._showHidden = getPref('file_browser.show_hidden', false) === true;
     this._sortField = 'name';
     this._sortOrder = 'asc';
   }
@@ -430,24 +431,25 @@ class AeorFileBrowserBase extends HTMLElement {
         page_size:      tab.page_size,
         preview_height: tab.preview_height,
       }));
-      localStorage.setItem('aeordb-file-browser', JSON.stringify({
-        tabs:          serializable_tabs,
-        active_tab_id: this._active_tab_id,
-        tab_counter:   this._tab_counter,
-      }));
+      mergePrefs({
+        file_browser: {
+          tabs:          serializable_tabs,
+          active_tab_id: this._active_tab_id,
+          tab_counter:   this._tab_counter,
+        },
+      });
     } catch (error) {
-      // localStorage unavailable
+      // preferences unavailable
     }
   }
 
   _loadState() {
     try {
-      const raw = localStorage.getItem('aeordb-file-browser');
-      if (!raw) return;
+      const state = getPref('file_browser', null);
+      if (!state) return;
 
-      const state         = JSON.parse(raw);
       this._active_tab_id = state.active_tab_id || null;
-      this._tab_counter   = state.tab_counter || 0;
+      this._tab_counter   = state.tab_counter   || 0;
 
       this._tabs = (state.tabs || []).map((tab) => ({
         ...tab,
@@ -472,7 +474,15 @@ class AeorFileBrowserBase extends HTMLElement {
   // Lifecycle
   // -------------------------------------------------------------------------
 
-  connectedCallback() {
+  async connectedCallback() {
+    // Prime the preferences cache before _loadState reads it. On the
+    // first navigation this is a single localhost round-trip (~10ms);
+    // subsequent mounts hit the in-memory cache and return instantly.
+    // Also seeds _showHidden, which was read in the constructor against
+    // whatever the cache contained at that moment (typically nothing).
+    await loadPrefs();
+    this._showHidden = getPref('file_browser.show_hidden', false) === true;
+
     this._loadState();
     this.render();
 
@@ -1502,7 +1512,7 @@ class AeorFileBrowserBase extends HTMLElement {
     if (toggleHiddenBtn) {
       toggleHiddenBtn.addEventListener('click', async () => {
         this._showHidden = !this._showHidden;
-        localStorage.setItem('aeordb-show-hidden', this._showHidden);
+        mergePrefs({ file_browser: { show_hidden: this._showHidden } });
         // Update button visual (toolbar is preserved, not rebuilt)
         toggleHiddenBtn.classList.toggle('primary', this._showHidden);
         toggleHiddenBtn.classList.toggle('secondary', !this._showHidden);

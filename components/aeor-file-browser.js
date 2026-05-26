@@ -3,10 +3,72 @@
 import { AeorFileBrowserBase } from './aeor-file-browser-base.js';
 import { escapeHtml, escapeAttr, directionArrow, openFolder } from './aeor-file-view-shared.js';
 import { elements } from '../../aeor/elements.js';
+import '../../aeor/components/aeor-split-button.js';
+import { getPref, mergePrefs } from '../preferences.js';
 
 const ENTRY_TYPE_DIR = 3;
 
 const { button: btnEl, svg: svgEl, path: pathEl, span: spanEl } = elements;
+const splitBtnEl = elements['aeor-split-button'];
+
+// Open Locally vs Open Remotely default — stored in preferences.yaml
+// under `file_browser.open_default` so every front-end pointed at this
+// daemon (Tauri webview, browser at localhost:9400, future CLI) agrees.
+// Two valid values: 'local' (default) | 'remote'.
+function _loadOpenDefault() {
+  const v = getPref('file_browser.open_default', 'local');
+  return (v === 'local' || v === 'remote') ? v : 'local';
+}
+
+function _saveOpenDefault(value) {
+  mergePrefs({ file_browser: { open_default: value } });
+}
+
+// Resolve the engine-side absolute path for the tab's current view.
+// Joins the relationship's remote_path with the tab's relative path,
+// collapsing any redundant slashes. Returns null when the relationship
+// isn't cached yet.
+function _resolveRemotePath(relationships, tab) {
+  if (!tab || !tab.relationship_id) return null;
+  const rel = relationships.find((r) => r.id === tab.relationship_id);
+  if (!rel || !rel.remote_path) return null;
+
+  const base = rel.remote_path.replace(/\/+$/, '');
+  const rest = (tab.path || '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  return rest ? `${base}/${rest}/` : `${base}/`;
+}
+
+// Mint a pre-authenticated portal URL for the given connection + engine
+// path, then hand the URL to Tauri's open_external_url. The endpoint
+// exchanges the connection's API key for a short-lived JWT and embeds it
+// in the URL, so the browser lands already logged in.
+async function _openRemotely(connectionId, remotePath) {
+  if (!connectionId || !remotePath) return;
+  try {
+    const url = `/api/v1/connections/${encodeURIComponent(connectionId)}`
+              + `/portal-url?path=${encodeURIComponent(remotePath)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('portal-url request failed:', response.status);
+      return;
+    }
+    const body = await response.json();
+    if (!body.url) {
+      console.error('portal-url response missing url field');
+      return;
+    }
+    const invoke = window.__TAURI_INTERNALS__?.invoke
+                || window.__TAURI__?.core?.invoke;
+    if (invoke) {
+      invoke('open_external_url', { url: body.url })
+        .catch((error) => console.warn('open_external_url failed:', error));
+    } else {
+      window.open(body.url, '_blank', 'noopener,noreferrer');
+    }
+  } catch (error) {
+    console.error('Failed to open remotely:', error);
+  }
+}
 
 // Per-entry sync state → CSS modifier class + tooltip. Centralized so
 // the dot's color and hover-text stay in lockstep when a new state is
@@ -56,6 +118,11 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     super.connectedCallback();
     this._fetchRelationships();
     this._connectSyncActivityStream();
+    // SSE only fires on state CHANGES. If the engine recovered before we
+    // subscribed (or before we mounted), no "up" event will ever arrive
+    // and the error tab would stay stuck. Probe once on mount to handle
+    // that race.
+    this._retryUnreachableTabs();
   }
 
   disconnectedCallback() {
@@ -71,6 +138,24 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   // created elsewhere (Sync page) wouldn't appear until full reload.
   refresh() {
     this._fetchRelationships();
+    // Page becoming visible is also a good moment to retry — the user
+    // may have started the engine while looking at a different page.
+    this._retryUnreachableTabs();
+  }
+
+  // Re-fetch any tab stuck on an upstream_unreachable banner. Called on
+  // mount and on page becoming visible. The SSE listener handles ongoing
+  // up/down flips; this just covers the race where the recovery already
+  // happened before we were listening.
+  _retryUnreachableTabs() {
+    for (const tab of this._tabs || []) {
+      if (tab._fetchError?.category !== 'upstream_unreachable') continue;
+      if (tab.id === this._active_tab_id) {
+        this._fetchListing();
+      } else {
+        tab._needsRefresh = true;
+      }
+    }
   }
 
   // Subscribe to the client's sync-activity SSE stream so a push or
@@ -90,6 +175,38 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     if (this._syncActivitySource) return;
     try {
       this._syncActivitySource = new EventSource('/api/v1/events');
+
+      // Connection health pinger (crate::health) broadcasts on every
+      // up<->down flip. We use it to auto-refresh tabs that are stuck on
+      // a "Cannot reach the server" banner when the engine comes back —
+      // the user doesn't have to navigate or reload.
+      //
+      // Only tabs in the `upstream_unreachable` error state get refreshed:
+      // - upstream_server / upstream_protocol → engine reachable but
+      //   something else is wrong; a connection-back signal is irrelevant.
+      // - upstream_rejected → 4xx, doesn't surface a banner anyway.
+      // - no error → user is browsing fine; don't churn the listing on
+      //   every health-check tick.
+      this._syncActivitySource.addEventListener('connection_health', (event) => {
+        let data;
+        try { data = JSON.parse(event.data); } catch (_) { return; }
+        if (!data || !data.connection_id || data.status !== 'up') return;
+
+        for (const tab of this._tabs || []) {
+          if (!tab._fetchError) continue;
+          if (tab._fetchError.category !== 'upstream_unreachable') continue;
+          const rel = this._relationships.find((r) => r.id === tab.relationship_id);
+          if (!rel || rel.remote_connection_id !== data.connection_id) continue;
+
+          if (tab.id === this._active_tab_id) {
+            this._fetchListing();
+          } else {
+            // Background tab: mark stale; it re-fetches on activation.
+            tab._needsRefresh = true;
+          }
+        }
+      });
+
       this._syncActivitySource.addEventListener('sync_activity', (event) => {
         let data;
         try { data = JSON.parse(event.data); } catch (_) { return; }
@@ -251,42 +368,62 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       .build(document);
   }
 
-  // Inject an "Open Locally" button into the directory toolbar, to
-  // the left of Snapshot / New Folder / Upload. Reveals the current
-  // tab path in the OS file manager (Nautilus / Finder / Explorer)
-  // via the openFolder() helper (POST /api/v1/open-folder on the
-  // local aeordb-client). That endpoint has its own absolute/exists/
-  // is_dir guards, so we don't repeat them here.
+  // Inject an "Open Locally / Open Remotely" split-button into the
+  // directory toolbar (to the left of Snapshot / New Folder / Upload).
+  // The chevron opens a dropdown with two mutually-exclusive radios; the
+  // primary button executes the currently-selected mode and its label
+  // tracks the selection. Default mode persists in localStorage under
+  // `aeor-file-browser:open-default`.
   //
-  // Skipped (returns null) when:
-  //   - the tab has no relationship_id yet (e.g. the "pick a
-  //     relationship" interstitial)
-  //   - the cached relationship has no local_path (defensive — every
-  //     real relationship has one, but the cache could be stale)
+  //   Open Locally  — POST /api/v1/open-folder, which reveals the path
+  //                   in Nautilus / Finder / Explorer. Endpoint has its
+  //                   own absolute/exists/is_dir guards, so we don't
+  //                   repeat them.
+  //   Open Remotely — GET /api/v1/connections/{id}/portal-url?path=…,
+  //                   then Tauri open_external_url. The endpoint mints
+  //                   a short-lived JWT from the connection's API key,
+  //                   so the browser lands already logged in.
   //
-  // We DON'T gate on whether the local folder exists — if a pull-only
-  // relationship hasn't synced yet, the endpoint will 404 and the
-  // openFolder helper logs to the console. We also don't gate on
-  // Tauri being present: the HTTP endpoint runs server-side regardless,
-  // and the aeordb-client always serves it. The portal subclass
+  // Skipped (returns null) when the tab has no relationship_id yet
+  // (e.g. the "pick a relationship" interstitial). The portal subclass
   // doesn't override directoryActions and inherits the base's null
-  // default, so this only renders for the desktop client.
+  // default, so this only renders in the desktop client.
   directoryActions(tab) {
-    const localPath = _resolveLocalPath(this._relationships, tab);
-    if (!localPath) return null;
+    if (!tab || !tab.relationship_id) return null;
+    const rel = this._relationships.find((r) => r.id === tab.relationship_id);
+    if (!rel) return null;
 
-    return btnEl
-      .class('secondary small open-locally-button')
-      .title(`Open ${localPath} in the system file manager`)
-      .dataPath(localPath)
-      .onClick((event) => {
-        event.preventDefault();
-        const path = event.currentTarget.dataset.path;
-        if (path) openFolder(path);
-      })(
-        _folderIconSvg(),
-        'Open Locally',
-      ).build(document);
+    const localPath  = _resolveLocalPath(this._relationships, tab);
+    const remotePath = _resolveRemotePath(this._relationships, tab);
+    const connectionId = rel.remote_connection_id || null;
+
+    const initial = _loadOpenDefault();
+
+    const btn = splitBtnEl
+      .class('directory-actions-open')
+      .title('Open the current folder (Locally or Remotely)')
+      .build(document);
+
+    btn.setItems([
+      { id: 'local',  label: 'Open Locally',  type: 'radio', checked: initial === 'local'  },
+      { id: 'remote', label: 'Open Remotely', type: 'radio', checked: initial === 'remote' },
+    ]);
+
+    btn.addEventListener('item-change', (event) => {
+      const id = event.detail?.id;
+      if (id === 'local' || id === 'remote') _saveOpenDefault(id);
+    });
+
+    btn.addEventListener('primary-click', (event) => {
+      const id = event.detail?.id || _loadOpenDefault();
+      if (id === 'remote') {
+        _openRemotely(connectionId, remotePath);
+      } else {
+        if (localPath) openFolder(localPath);
+      }
+    });
+
+    return btn;
   }
 
   // Override _saveState to persist relationship metadata
@@ -302,13 +439,15 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
         relationship_id:   tab.relationship_id,
         relationship_name: tab.relationship_name,
       }));
-      localStorage.setItem('aeordb-file-browser', JSON.stringify({
-        tabs:          serializable_tabs,
-        active_tab_id: this._active_tab_id,
-        tab_counter:   this._tab_counter,
-      }));
+      mergePrefs({
+        file_browser: {
+          tabs:          serializable_tabs,
+          active_tab_id: this._active_tab_id,
+          tab_counter:   this._tab_counter,
+        },
+      });
     } catch (error) {
-      // localStorage unavailable
+      // preferences unavailable
     }
   }
 
@@ -583,6 +722,138 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       return;
     }
     super._handlePreviewAction(action);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Engine UI parity — methods the portal subclass implements that the
+  // client subclass also needs. Each forwards to a client-lib proxy route
+  // (`/api/v1/...`) which resolves the relationship_id to a connection +
+  // absolute remote path before hitting the engine. See
+  // aeordb-client-lib/src/api/routes/files.rs (handlers) and
+  // aeordb-client-lib/src/remote/mod.rs (engine calls).
+  //
+  // All calls go through `_relApi` below, which handles the active-tab
+  // guard, body serialization, and error→Error mapping. Read methods that
+  // want a "return [] on error" semantic wrap the call in try/catch;
+  // write methods let the throw propagate.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch a relationship-scoped client API.
+   *
+   * - Throws `Error('no active tab')` if there's no relationship_id on the
+   *   active tab (no relationship picked yet, or no tabs at all).
+   * - Sets Content-Type and JSON.stringifies `body` when provided.
+   * - Throws `Error(msg)` on non-2xx, preferring the server's `error`
+   *   field from a JSON body, falling back to `HTTP {status}`.
+   * - Returns parsed JSON, or `{}` for empty 2xx responses.
+   *
+   * `urlBuilder` is a function (relationship_id) → URL — callers compose
+   * the URL with the rel_id at whatever path position the route uses.
+   */
+  async _relApi(method, urlBuilder, body) {
+    const tab = this._activeTab();
+    if (!tab || !tab.relationship_id) throw new Error('no active tab');
+
+    const init = { method, headers: {} };
+    if (body !== undefined && body !== null) {
+      init.headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(urlBuilder(tab.relationship_id), init);
+    if (!response.ok) {
+      let msg = `HTTP ${response.status}`;
+      try {
+        const err = await response.json();
+        if (err && err.error) msg = err.error;
+      } catch (_) { /* non-JSON */ }
+      throw new Error(msg);
+    }
+
+    const text = await response.text();
+    if (!text) return {};
+    try { return JSON.parse(text); }
+    catch (_) { return {}; }
+  }
+
+  async _fetchDeleted(dirPath) {
+    try {
+      const data = await this._relApi('GET',
+        (rel) => `/api/v1/browse/${rel}/deleted?path=${encodeURIComponent(dirPath)}`);
+      return data.items || [];
+    } catch (_) { return []; }
+  }
+
+  async _restoreFile(filePath) {
+    await this._relApi('POST',
+      (rel) => `/api/v1/files/${rel}/restore`,
+      { path: filePath });
+  }
+
+  async _fetchVersionHistory(filePath) {
+    try {
+      const cleanPath = filePath.replace(/^\//, '');
+      const data = await this._relApi('GET',
+        (rel) => `/api/v1/versions/${rel}/history/${cleanPath}`);
+      return data.history || [];
+    } catch (_) { return []; }
+  }
+
+  async _fetchSnapshotList() {
+    try {
+      const data = await this._relApi('GET',
+        (rel) => `/api/v1/snapshots/${rel}`);
+      const items = data.items || [];
+      // Same shape as the portal returns — version-history-style entries
+      // sorted newest-first.
+      return items
+        .sort((a, b) => b.created_at - a.created_at)
+        .map((s, idx) => ({
+          snapshot:     s.name,
+          id:           s.id,
+          timestamp:    s.created_at,
+          change_type:  idx === 0 ? 'added' : 'modified',
+          size:         null,
+          content_type: null,
+          content_hash: s.root_hash,
+        }));
+    } catch (_) { return []; }
+  }
+
+  async _createSnapshot(name) {
+    await this._relApi('POST',
+      (rel) => `/api/v1/snapshots/${rel}`,
+      { name });
+  }
+
+  async _restoreFromSnapshot(filePath, snapshotId) {
+    await this._relApi('POST',
+      (rel) => `/api/v1/snapshots/${rel}/${encodeURIComponent(snapshotId)}/restore`,
+      { path: filePath });
+  }
+
+  async _pasteAsCopy(paths, destination) {
+    await this._relApi('POST',
+      (rel) => `/api/v1/files/${rel}/copy`,
+      { paths, destination });
+  }
+
+  // Move = rename one at a time. Mirrors the portal's approach exactly so
+  // a future engine-side bulk-move endpoint can be wired into both
+  // subclasses by the same diff.
+  async _pasteAsMove(paths, destination) {
+    for (const srcPath of paths) {
+      const name = srcPath.split('/').pop();
+      const toPath = destination.replace(/\/$/, '') + '/' + name;
+      await this.renamePath(srcPath, toPath);
+    }
+  }
+
+  async _createSymlink(path, target) {
+    await this._relApi('POST',
+      (rel) => `/api/v1/files/${rel}/symlink`,
+      { path, target });
   }
 }
 

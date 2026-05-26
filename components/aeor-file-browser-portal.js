@@ -20,7 +20,12 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     // For share sessions, clear saved state so we always start fresh
     // at the shared path (not wherever the user last navigated).
     if (window.AUTH && window.AUTH._isShareSession) {
+      // Clear BOTH the legacy key (pre-preferences-API era) and the new
+      // fallback key (preferences.js writes here when /api/v1/preferences
+      // 404s, which is the portal's case — the engine doesn't host that
+      // endpoint).
       localStorage.removeItem('aeordb-file-browser');
+      localStorage.removeItem('aeordb-preferences-fallback');
     }
 
     super.connectedCallback();
