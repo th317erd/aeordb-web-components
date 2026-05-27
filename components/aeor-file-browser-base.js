@@ -1168,8 +1168,21 @@ class AeorFileBrowserBase extends HTMLElement {
 
     const listingArea = container.querySelector('.tab-listing-area');
 
-    if (!listingArea) {
-      // First render: full build
+    // Detect a transition in/out of the no-access state. The selective-
+    // update branch below patches header + listing in place, which only
+    // works when those elements are already in the DOM. The no-access
+    // state strips both, so transitioning from no-access → has-access
+    // (e.g. someone just shared a folder with this user via SSE) would
+    // leave the page stuck in the stripped state. Same in reverse:
+    // has-access → no-access (last share revoked) would leave a stale
+    // header + toolbar around an empty listing. Force a full rebuild
+    // whenever the layout shape changes.
+    const hasHeaderInDom = !!(listingArea && listingArea.querySelector('.tab-header'));
+    const wantsHeader = !this._isNoAccessState(tab);
+    const layoutChanged = listingArea && (hasHeaderInDom !== wantsHeader);
+
+    if (!listingArea || layoutChanged) {
+      // First render OR no-access transition: full build
       container.textContent = '';
       const newListingArea = div.class('tab-listing-area')().build(document);
       for (const node of this._renderDirectoryViewFor(tab)) {
