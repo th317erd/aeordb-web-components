@@ -1,9 +1,11 @@
 'use strict';
 
 import { elements } from '../../aeor/elements.js';
+import '../../aeor/components/aeor-info-box.js';
 import { AeorAdminPage } from './aeor-admin-page.js';
 
 const { div, label, input, button, span, code, select, option, svg, path, circle } = elements;
+const aeorInfoBox = elements['aeor-info-box'];
 
 /**
  * <aeor-keys-page> — Admin page for managing API keys.
@@ -209,7 +211,11 @@ export class AeorKeysPage extends AeorAdminPage {
     formContainer.textContent = '';
     formContainer.appendChild(
       div(
-        div.class('alert alert-warning')(
+        // <aeor-info-box warning> ships the yellow triangle "!" icon
+        // alongside the text. Use it instead of hand-rolling another
+        // `.alert-warning` so the warning chrome stays consistent
+        // across the portal.
+        aeorInfoBox.warning('')(
           'This key will not be shown again. Copy it now and store it securely.',
         ),
         div.class('form-group')(
@@ -235,11 +241,26 @@ export class AeorKeysPage extends AeorAdminPage {
           'Expires: ',
           result.expires_at ? new Date(result.expires_at).toLocaleDateString() : '\u2014',
         ),
-        div.class('modal-footer-actions')(
-          button.class('primary small').id('keys-done-btn').type('button')('Done'),
-        ),
+        // No inline footer-actions row here \u2014 once the key is shown there
+        // is nothing to cancel, and no further action other than "I've
+        // copied it." We replace the modal's hoisted footer below.
       ).build(document),
     );
+
+    // Replace the hoisted modal footer (originally Cancel + Creating...)
+    // with a single "Done" button. The footer was lifted into
+    // `.aeor-modal__footer` by aeor-modal at attach time, so we update it
+    // in place rather than re-adding a `.modal-footer-actions` inside the
+    // body (which wouldn't get hoisted now anyway).
+    const footer = modal.footer || modal.querySelector('.aeor-modal__footer');
+    if (footer) {
+      footer.textContent = '';
+      footer.appendChild(
+        div.class('modal-footer-actions')(
+          button.class('primary small').id('keys-done-btn').type('button')('Done'),
+        ).build(document),
+      );
+    }
 
     const copyBtn = formContainer.querySelector('#keys-copy-btn');
     if (copyBtn) {
@@ -255,7 +276,9 @@ export class AeorKeysPage extends AeorAdminPage {
       });
     }
 
-    const doneBtn = formContainer.querySelector('#keys-done-btn');
+    // The Done button now lives in the modal footer, not in the form
+    // container \u2014 query the modal scope so we find it.
+    const doneBtn = modal.querySelector('#keys-done-btn');
     if (doneBtn) {
       doneBtn.addEventListener('click', () => {
         modal.close();
