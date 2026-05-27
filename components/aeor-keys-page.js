@@ -208,15 +208,24 @@ export class AeorKeysPage extends AeorAdminPage {
     const formContainer = modal.querySelector('.admin-modal-form');
     if (!formContainer) return;
 
+    // Disable overlay-click + Escape dismissal once the key is shown.
+    // The key is unrecoverable — an accidental outside-click on the
+    // "copy it now" dialog would destroy the user's only copy. They
+    // must explicitly press Done (or the × button) to acknowledge.
+    modal.setAttribute('disable-overlay-close', '');
+
     formContainer.textContent = '';
     formContainer.appendChild(
       div(
         // <aeor-info-box warning> ships the yellow triangle "!" icon
         // alongside the text. Use it instead of hand-rolling another
         // `.alert-warning` so the warning chrome stays consistent
-        // across the portal.
-        aeorInfoBox.warning('')(
-          'This key will not be shown again. Copy it now and store it securely.',
+        // across the portal. Wrap so we can apply a bottom margin —
+        // info-box itself collapses against the next form-group.
+        div.style('margin-bottom:1rem')(
+          aeorInfoBox.warning('')(
+            'This key will not be shown again. Copy it now and store it securely.',
+          ),
         ),
         div.class('form-group')(
           label.class('form-label')('API Key'),
