@@ -303,6 +303,57 @@ class AeorFileBrowserBase extends HTMLElement {
     return window.AUTH.currentUserId() === '00000000-0000-0000-0000-000000000000';
   }
 
+  /** Empty-state card shown when a non-root user lands on `/` with no
+   *  visible content. The default "This directory is empty." message
+   *  is technically true (no entries listable for THEM) but opaque —
+   *  it doesn't tell the user that the root probably has data they
+   *  just can't see, nor how to get access. This card shows their
+   *  user ID (with one-click copy) and a clear next step. */
+  _renderNoAccessCard(userId) {
+    const card = div.class('empty-state-card no-access-card').style(
+      'max-width:520px;margin:3rem auto;padding:1.5rem;text-align:left;' +
+      'background:var(--card,#161b22);border:1px solid var(--border,#30363d);' +
+      'border-radius:0.5rem;'
+    )(
+      div.style('font-size:1rem;font-weight:600;margin-bottom:0.5rem;color:var(--text,#e6edf3)')(
+        "You don't have access to anything yet.",
+      ),
+      div.class('text-muted').style('margin-bottom:1rem;line-height:1.5')(
+        'An admin needs to grant you access to a folder. Once they do, ' +
+        'it will show up here. Share your user ID with the admin so they ' +
+        'know which account to grant.',
+      ),
+      div.style('margin-bottom:0.5rem;font-size:0.85rem')(
+        'Your user ID:',
+      ),
+      div.style('display:flex;gap:0.5rem;align-items:center')(
+        input.type('text').readonly('')
+          .class('form-input form-input-mono')
+          .style('flex:1;font-family:var(--font-mono,monospace);font-size:0.85rem')
+          .value(userId || '(unknown — refresh the page)')
+          .id('no-access-userid'),
+        button.class('primary small').id('no-access-copy').type('button')('Copy'),
+      ),
+    ).build(document);
+
+    // Wire the copy button. Same pattern as the keys-page copy:
+    // navigator.clipboard.writeText, then briefly swap the label so the
+    // user sees the action confirmed.
+    const copyBtn = card.querySelector('#no-access-copy');
+    const idInput = card.querySelector('#no-access-userid');
+    if (copyBtn && idInput) {
+      copyBtn.addEventListener('click', () => {
+        if (!userId) return;
+        navigator.clipboard.writeText(userId).then(() => {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        }).catch(() => { idInput.select(); });
+      });
+    }
+
+    return card;
+  }
+
   _hasPermission(flag, entry) {
     const perms = (entry && entry.effective_permissions)
       ? entry.effective_permissions
@@ -742,6 +793,23 @@ class AeorFileBrowserBase extends HTMLElement {
     const visible = this._getVisibleEntries(tab);
 
     if (visible.length === 0 && tab.entries.length === 0) {
+      // Special case: a non-root user landed on `/` and there's nothing
+      // visible — almost certainly they have zero grants and aren't aware
+      // of it. The default "This directory is empty." message is honest
+      // but uselessly opaque (the directory's not really empty for root —
+      // it's just empty *for them*). Surface a guidance card with their
+      // user ID so they can ask an admin for access.
+      //
+      // Root users at "/" also see the generic empty-state if the DB is
+      // truly empty — that's intended, since root can act on it.
+      const atRoot = (tab.path === '/' || tab.path === '');
+      if (atRoot && !this._isRoot()) {
+        const userId =
+          (typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId)
+            ? window.AUTH.currentUserId()
+            : null;
+        return this._renderNoAccessCard(userId);
+      }
       return div.class('empty-state')('This directory is empty.').build(document);
     }
 
