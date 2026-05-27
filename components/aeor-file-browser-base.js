@@ -331,7 +331,7 @@ class AeorFileBrowserBase extends HTMLElement {
           .class('form-input form-input-mono')
           .style('flex:1;font-family:var(--font-mono,monospace);font-size:0.85rem')
           .value(userId || '(unknown — refresh the page)')
-          .id('no-access-userid'),
+          .id('no-access-userid')(),
         button.class('primary small').id('no-access-copy').type('button')('Copy'),
       ),
     ).build(document);
