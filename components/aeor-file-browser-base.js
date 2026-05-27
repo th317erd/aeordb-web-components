@@ -408,7 +408,18 @@ class AeorFileBrowserBase extends HTMLElement {
   // -------------------------------------------------------------------------
 
   renderNoTabContent() {
-    return div.class('empty-state')('No tabs open.').build(document);
+    // Non-root users with no shares typically land here on first visit:
+    // no tab was auto-opened (or they closed it), and the default
+    // "No tabs open." message is uselessly opaque. Surface the same
+    // no-access guidance card the per-tab empty state uses.
+    if (!this._isRoot()) {
+      const userId =
+        (typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId)
+          ? window.AUTH.currentUserId()
+          : null;
+      return this._renderNoAccessCard(userId);
+    }
+    return div.class('empty-state')('No tabs open. Click "+" to open one.').build(document);
   }
 
   rootLabel() {
@@ -793,17 +804,16 @@ class AeorFileBrowserBase extends HTMLElement {
     const visible = this._getVisibleEntries(tab);
 
     if (visible.length === 0 && tab.entries.length === 0) {
-      // Special case: a non-root user landed on `/` and there's nothing
-      // visible — almost certainly they have zero grants and aren't aware
-      // of it. The default "This directory is empty." message is honest
-      // but uselessly opaque (the directory's not really empty for root —
-      // it's just empty *for them*). Surface a guidance card with their
-      // user ID so they can ask an admin for access.
+      // Non-root user with an empty listing: most often they have no
+      // grants at all (and the engine returns an empty listing per
+      // anti-leak design rather than 403). Show the user-ID + ask-admin
+      // card instead of "This directory is empty." — same guidance
+      // applies whether they're at `/` or deeper.
       //
-      // Root users at "/" also see the generic empty-state if the DB is
-      // truly empty — that's intended, since root can act on it.
-      const atRoot = (tab.path === '/' || tab.path === '');
-      if (atRoot && !this._isRoot()) {
+      // Root users see the original "empty" message because they CAN
+      // act on it (mkdir/upload). Non-root + write permission would
+      // have surfaced a New Folder button via _hasPermission already.
+      if (!this._isRoot()) {
         const userId =
           (typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId)
             ? window.AUTH.currentUserId()
