@@ -752,7 +752,29 @@ class AeorFileBrowserBase extends HTMLElement {
     const listing = div.class('tab-listing')().build(document);
     listing.appendChild(this._renderListingContent(tab, viewMode));
 
+    // No-access state: a non-root user with an empty listing is being
+    // shown the user-ID guidance card instead of file content. There's
+    // nothing for the toolbar's view-mode/eye/selection controls to act
+    // on, so drop the toolbar — leave just the page header (breadcrumb)
+    // and the guidance card.
+    if (this._isNoAccessState(tab)) {
+      return [header, listing];
+    }
+
     return [header, toolbar, listing];
+  }
+
+  /** Whether the file browser is in "no-access" empty state for the
+   *  current tab. Mirrors the condition in _renderListingContent's
+   *  empty-state branch so the toolbar can be hidden in lockstep. */
+  _isNoAccessState(tab) {
+    if (this._isRoot()) return false;
+    if (tab.loading) return false;
+    if (tab._fetchError && tab._fetchError.category &&
+        tab._fetchError.category !== 'upstream_rejected') return false;
+    if (tab.entries.length !== 0) return false;
+    const visible = this._getVisibleEntries(tab);
+    return visible.length === 0;
   }
 
   _renderListingContent(tab, viewMode) {
