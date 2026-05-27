@@ -73,8 +73,27 @@ export class AeorLogin extends HTMLElement {
       });
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Authentication failed (${response.status})`);
+        // The engine returns `{"error":"<human-readable message>"}` on
+        // failures. Surface the message to the user instead of the raw
+        // JSON envelope. Fall back to the status text only if the body
+        // isn't JSON or lacks an `error` field.
+        let message = `Authentication failed (${response.status})`;
+        const raw = await response.text();
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.error === 'string') {
+              message = parsed.error;
+            } else if (parsed && typeof parsed.message === 'string') {
+              message = parsed.message;
+            } else {
+              message = raw;
+            }
+          } catch (_) {
+            message = raw;
+          }
+        }
+        throw new Error(message);
       }
 
       const data = await response.json();
