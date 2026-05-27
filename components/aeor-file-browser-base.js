@@ -753,12 +753,12 @@ class AeorFileBrowserBase extends HTMLElement {
     listing.appendChild(this._renderListingContent(tab, viewMode));
 
     // No-access state: a non-root user with an empty listing is being
-    // shown the user-ID guidance card instead of file content. There's
-    // nothing for the toolbar's view-mode/eye/selection controls to act
-    // on, so drop the toolbar — leave just the page header (breadcrumb)
-    // and the guidance card.
+    // shown the user-ID guidance card. Strip BOTH the page header
+    // (the breadcrumb is just "Database /" with nothing to navigate
+    // to) and the toolbar (no view-mode/selection actions apply when
+    // there's no content). Return only the guidance card.
     if (this._isNoAccessState(tab)) {
-      return [header, listing];
+      return [listing];
     }
 
     return [header, toolbar, listing];
