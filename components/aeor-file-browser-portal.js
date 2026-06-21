@@ -16,7 +16,7 @@ function _triggerDownload(blob, filename) {
 }
 
 export class AeorFileBrowserPortal extends AeorFileBrowserBase {
-  connectedCallback() {
+  async connectedCallback() {
     // For share sessions, clear saved state so we always start fresh
     // at the shared path (not wherever the user last navigated).
     if (window.AUTH && window.AUTH._isShareSession) {
@@ -28,40 +28,82 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
       localStorage.removeItem('aeordb-preferences-fallback');
     }
 
-    super.connectedCallback();
+    await super.connectedCallback();
     this._connectSSE();
 
     // Auto-open a tab if none were restored from localStorage
     if (!this._active_tab_id) {
-      let initPath = '/';
-      let initPreviewName = null;
-      if (window.AUTH && window.AUTH._isShareSession) {
-        const params = new URLSearchParams(window.location.search);
-        const sharePath = params.get('path');
-        if (sharePath) {
-          // A share link may target a single file (no trailing slash) or
-          // an entire directory (trailing slash). For a file: open the
-          // parent directory and queue the file for auto-preview. For a
-          // directory: open it directly.
-          if (sharePath.endsWith('/')) {
-            initPath = sharePath;
-          } else {
-            const lastSlash = sharePath.lastIndexOf('/');
-            initPath = lastSlash > 0 ? sharePath.slice(0, lastSlash + 1) : '/';
-            initPreviewName = sharePath.slice(lastSlash + 1);
-          }
+      await this._openDefaultTab();
+    }
+  }
+
+  _normalizeSharedPathData(paths) {
+    return (paths || []).map((s) => ({
+      path: s.path.endsWith('/') ? s.path : s.path + '/',
+      path_pattern: s.path_pattern || null,
+      permissions: s.permissions || '-r--l---',
+      size: s.size || 0,
+      created_at: s.created_at || null,
+      updated_at: s.updated_at || null,
+      content_type: s.content_type || null,
+    }));
+  }
+
+  async _getSharedPathData() {
+    if (!this._sharedPathData) {
+      const shared = await this.getSharedWithMe();
+      this._sharedPathData = this._normalizeSharedPathData(shared.paths || []);
+    }
+    return this._sharedPathData;
+  }
+
+  async _resolveInitialLocation() {
+    let initPath = '/';
+    let initPreviewName = null;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedPath = params.get('path');
+    if (requestedPath) {
+      if (requestedPath.endsWith('/')) {
+        initPath = requestedPath;
+      } else {
+        const lastSlash = requestedPath.lastIndexOf('/');
+        initPath = lastSlash > 0 ? requestedPath.slice(0, lastSlash + 1) : '/';
+        initPreviewName = requestedPath.slice(lastSlash + 1);
+      }
+      return { initPath, initPreviewName };
+    }
+
+    if (window.AUTH && window.AUTH._isShareSession) {
+      return { initPath, initPreviewName };
+    }
+
+    if (!this._isRoot()) {
+      try {
+        const sharedPaths = await this._getSharedPathData();
+        const directoryShares = sharedPaths.filter((sp) => !sp.path_pattern);
+        if (directoryShares.length === 1) {
+          initPath = directoryShares[0].path;
         }
+      } catch (_) {
+        initPath = '/';
       }
-      this._openTab('portal', 'Database', initPath);
-      if (initPreviewName) {
-        // After the tab loads its listing, auto-open the file's preview.
-        this._pendingSharePreview = initPreviewName;
-        // Mark the tab so directory-level actions (New Folder, Upload,
-        // Snapshot) stay hidden. The share grants permissions ON THE FILE,
-        // not on the parent directory.
-        const tab = this._activeTab();
-        if (tab) tab._listing_from_share_patterns = true;
-      }
+    }
+
+    return { initPath, initPreviewName };
+  }
+
+  async _openDefaultTab() {
+    const { initPath, initPreviewName } = await this._resolveInitialLocation();
+    this._openTab('portal', 'Database', initPath);
+    if (initPreviewName) {
+      // After the tab loads its listing, auto-open the file's preview.
+      this._pendingSharePreview = initPreviewName;
+      // Mark the tab so directory-level actions (New Folder, Upload,
+      // Snapshot) stay hidden. The share grants permissions ON THE FILE,
+      // not on the parent directory.
+      const tab = this._activeTab();
+      if (tab) tab._listing_from_share_patterns = true;
     }
   }
 
@@ -95,7 +137,12 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (sort) qs += `&sort=${sort}`;
     if (order) qs += `&order=${order}`;
     const response = await window.api(`${filesPath}${qs}`);
-    if (!response.ok) throw new Error(`Browse failed: ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`Browse failed: ${response.status}`);
+      error.status = response.status;
+      error.category = response.status >= 500 ? 'upstream_server' : 'upstream_rejected';
+      throw error;
+    }
     const data = await response.json();
     const items = data.items || [];
     return {
@@ -197,8 +244,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
   }
 
   openNewTab() {
-    // Portal has no relationship selector — just open a new tab at root
-    this._openTab('portal', 'Database');
+    this._openDefaultTab();
   }
 
   // ---------------------------------------------------------------------------
