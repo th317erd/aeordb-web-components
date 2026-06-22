@@ -99,7 +99,7 @@ export function isImageFile(name) {
 
 export function isVideoFile(name) {
   const ext = fileExtension(name);
-  return ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(ext);
+  return ['mp4', 'm4v', 'webm', 'ogv', 'ogg', 'mov', 'avi', 'mkv'].includes(ext);
 }
 
 export function isAudioFile(name) {

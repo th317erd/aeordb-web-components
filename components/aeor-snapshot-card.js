@@ -127,7 +127,7 @@ class AeorSnapshotCard extends HTMLElement {
         div.class('snapshot-card-info')(
           div.class('snapshot-card-name')(
             changeIcon,
-            name,
+            span.class('snapshot-card-name-text')(name),
             badgeEl,
           ),
           div.class('snapshot-card-id')(

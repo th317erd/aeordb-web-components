@@ -7,15 +7,18 @@ import {
   flashButton, ENTRY_TYPE_DIR,
 } from './aeor-file-view-shared.js';
 import { loadPrefs, getPref, mergePrefs } from '../preferences.js';
+import { showConfirm } from '../../aeor/confirm.js';
 import '../../aeor/components/aeor-modal.js';
 import '../../aeor/components/aeor-confirm-button.js';
 import '../../aeor/components/aeor-info-box.js';
+import '../../aeor/components/aeor-select.js';
 import '../../aeor/components/aeor-tab-view.js';
 import './aeor-snapshot-card.js';
 
 const { div, span, button, input, label, h2, h3, ul, li, table, thead, tbody, tr, th, td, canvas } = elements;
 const aeorModal = elements['aeor-modal'];
 const aeorConfirmButton = elements['aeor-confirm-button'];
+const aeorSelect = elements['aeor-select'];
 
 /** Subclass hook return types (previewActions, directoryPreviewActions)
  *  may be a Node, an Array of Nodes, or an HTML string (legacy contract
@@ -114,6 +117,12 @@ const PREVIEW_OVERRIDES = {
   'application/pdf':        'aeor-preview-pdf',
 };
 
+const PREVIEW_GROUP_OVERRIDES = {
+  image: 'aeor-preview-image',
+  audio: 'aeor-preview-audio',
+  video: 'aeor-preview-video',
+};
+
 /** Build a canvas sized to fit inside a thumbnail box. Internal pixels
  *  match the device pixel ratio for crisp output; CSS size matches the
  *  box so layout doesn't shift. */
@@ -166,6 +175,16 @@ async function loadPreviewComponent(contentType) {
   }
 
   const [group, subtype] = contentType.split('/');
+  if (PREVIEW_GROUP_OVERRIDES[group]) {
+    const name = PREVIEW_GROUP_OVERRIDES[group];
+    try {
+      await import(`./previews/${name}.js`);
+      if (customElements.get(name)) return name;
+    } catch (error) {
+      // fall through to normal cascade
+    }
+  }
+
   const sanitizedSubtype = (subtype || '').replace(/[^a-z0-9]/g, '-');
   const exact = `aeor-preview-${group}-${sanitizedSubtype}`;
   const grouped = `aeor-preview-${group}`;
@@ -194,6 +213,60 @@ async function loadPreviewComponent(contentType) {
   }
 
   return 'aeor-preview-default';
+}
+
+function _isGenericContentType(contentType) {
+  const normalized = (contentType || '').split(';', 1)[0].trim().toLowerCase();
+  return !normalized
+    || normalized === 'application/octet-stream'
+    || normalized === 'binary/octet-stream'
+    || normalized === 'application/x-binary';
+}
+
+function _contentTypeFromFilename(filename) {
+  const ext = fileExtension(filename || '');
+  switch (ext) {
+    case 'mp4':  return 'video/mp4';
+    case 'm4v':  return 'video/mp4';
+    case 'webm': return 'video/webm';
+    case 'ogv':  return 'video/ogg';
+    case 'ogg':  return 'video/ogg';
+    case 'mov':  return 'video/quicktime';
+    case 'avi':  return 'video/x-msvideo';
+    case 'mkv':  return 'video/x-matroska';
+    case 'mp3':  return 'audio/mpeg';
+    case 'wav':  return 'audio/wav';
+    case 'flac': return 'audio/flac';
+    case 'aac':  return 'audio/aac';
+    case 'm4a':  return 'audio/mp4';
+    case 'png':  return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif':  return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'svg':  return 'image/svg+xml';
+    case 'bmp':  return 'image/bmp';
+    case 'ico':  return 'image/x-icon';
+    case 'pdf':  return 'application/pdf';
+    case 'md':
+    case 'markdown': return 'text/markdown';
+    case 'txt':  return 'text/plain';
+    case 'json': return 'application/json';
+    case 'csv':  return 'text/csv';
+    case 'html':
+    case 'htm':  return 'text/html';
+    case 'css':  return 'text/css';
+    case 'js':
+    case 'mjs':  return 'application/javascript';
+    default:     return null;
+  }
+}
+
+function resolvePreviewContentType(filename, contentType) {
+  if (!_isGenericContentType(contentType))
+    return contentType;
+
+  return _contentTypeFromFilename(filename) || contentType || 'application/octet-stream';
 }
 
 // AeorFileBrowserBase — abstract base class for file browser components.
@@ -301,6 +374,14 @@ class AeorFileBrowserBase extends HTMLElement {
   _isRoot() {
     if (typeof window === 'undefined' || !window.AUTH || !window.AUTH.currentUserId) return false;
     return window.AUTH.currentUserId() === '00000000-0000-0000-0000-000000000000';
+  }
+
+  _currentUserId() {
+    if (typeof window === 'undefined' || !window.AUTH || !window.AUTH.currentUserId)
+      return null;
+
+    const userId = window.AUTH.currentUserId();
+    return (typeof userId === 'string' && userId.trim()) ? userId.trim() : null;
   }
 
   /** Empty-state card shown when a non-root user lands on `/` with no
@@ -653,17 +734,44 @@ class AeorFileBrowserBase extends HTMLElement {
     });
   }
 
-  _getVisibleEntries(tab) {
+  _getVisibleEntriesFrom(tab, entries, deletedEntries = tab._deletedEntries || []) {
     const live = this._showHidden
-      ? tab.entries
-      : tab.entries.filter((e) => !e.name.startsWith('.'));
-    const deleted = tab._deletedEntries || [];
-    const all = [...live, ...deleted];
+      ? entries
+      : entries.filter((e) => !e.name.startsWith('.'));
+    const all = [...live, ...deletedEntries];
 
     // Directories always sort before files
     const dirs = all.filter((e) => e.entry_type === ENTRY_TYPE_DIR);
     const files = all.filter((e) => e.entry_type !== ENTRY_TYPE_DIR);
     return [...dirs, ...files];
+  }
+
+  _getVisibleEntries(tab) {
+    return this._getVisibleEntriesFrom(tab, tab.entries);
+  }
+
+  _entryCountText(tab, visible) {
+    const hiddenCount = tab.entries.length - visible.length;
+    return (tab.total != null)
+      ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
+      : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
+  }
+
+  _entryFingerprint(entry) {
+    if (!entry) return '';
+    return JSON.stringify([
+      entry.name,
+      entry.entry_type,
+      entry.size,
+      entry.content_type || '',
+      entry.created_at || 0,
+      entry.updated_at || 0,
+      entry.sync_status || '',
+      entry.has_local === true,
+      entry.effective_permissions || '',
+      entry._deleted === true,
+      entry._deleted_at || 0,
+    ]);
   }
 
   _getConfigActions(tab) {
@@ -710,11 +818,10 @@ class AeorFileBrowserBase extends HTMLElement {
     const selectionLeft = div.class('selection-actions-left invisible')(
       span.class('selection-count')(),
       aeorConfirmButton
-        .class('selection-delete hidden')
+        .class('confirm-button-danger selection-delete hidden')
         .label('Delete Selected')
         .confirmedText('Deleted!')
-        .duration('1000')
-        .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')(),
+        .duration('1000')(),
       button.class('primary small selection-restore hidden')('Undelete Selected'),
     ).build(document);
     _appendHook(selectionLeft, this.selectionActions(tab));
@@ -768,13 +875,23 @@ class AeorFileBrowserBase extends HTMLElement {
    *  current tab. Mirrors the condition in _renderListingContent's
    *  empty-state branch so the toolbar can be hidden in lockstep. */
   _isNoAccessState(tab) {
+    return this._shouldShowNoAccessGuidance(tab);
+  }
+
+  _shouldShowNoAccessGuidance(tab) {
+    if (!tab) return false;
     if (this._isRoot()) return false;
+    if (!this._currentUserId()) return false;
     if (tab.loading) return false;
-    if (tab._fetchError && tab._fetchError.category &&
-        tab._fetchError.category !== 'upstream_rejected') return false;
     if (tab.entries.length !== 0) return false;
+
     const visible = this._getVisibleEntries(tab);
-    return visible.length === 0;
+    if (visible.length !== 0) return false;
+
+    if (tab._fetchError && tab._fetchError.category)
+      return tab._fetchError.category === 'upstream_rejected';
+
+    return tab._sharedAccessChecked === true;
   }
 
   _renderListingContent(tab, viewMode) {
@@ -835,12 +952,8 @@ class AeorFileBrowserBase extends HTMLElement {
       // Root users see the original "empty" message because they CAN
       // act on it (mkdir/upload). Non-root + write permission would
       // have surfaced a New Folder button via _hasPermission already.
-      if (!this._isRoot()) {
-        const userId =
-          (typeof window !== 'undefined' && window.AUTH && window.AUTH.currentUserId)
-            ? window.AUTH.currentUserId()
-            : null;
-        return this._renderNoAccessCard(userId);
+      if (this._shouldShowNoAccessGuidance(tab)) {
+        return this._renderNoAccessCard(this._currentUserId());
       }
       return div.class('empty-state')('This directory is empty.').build(document);
     }
@@ -851,11 +964,6 @@ class AeorFileBrowserBase extends HTMLElement {
       ).build(document);
     }
 
-    const hiddenCount = tab.entries.length - visible.length;
-    const countText = (tab.total != null)
-      ? `Showing ${visible.length} of ${tab.total}${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`
-      : `${visible.length} items${(hiddenCount > 0) ? ` (${hiddenCount} hidden)` : ''}`;
-
     const listing = (viewMode === 'grid')
       ? this._renderGridViewFor(tab, visible)
       : this._renderListViewFor(tab, visible);
@@ -863,7 +971,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // The chain expects a single Node \u2014 wrap listing + count + optional loading-more.
     const frag = document.createDocumentFragment();
     frag.appendChild(listing);
-    frag.appendChild(div.class('entry-count')(countText).build(document));
+    frag.appendChild(div.class('entry-count')(this._entryCountText(tab, visible)).build(document));
     if (tab.loading_more) {
       frag.appendChild(div.class('scroll-loading')('Loading more...').build(document));
     }
@@ -936,12 +1044,14 @@ class AeorFileBrowserBase extends HTMLElement {
     // overflow into ellipsis won't clip the dot.
     const statusDot = this.syncStatusIndicator(entry);
 
-    return rowBuilder(
+    const rowEl = rowBuilder(
       td(statusDot, fileIconSpan, nameSpan),
       td(size),
       td(created),
       modifiedCell,
     ).build(document);
+    rowEl._aeorEntryFingerprint = this._entryFingerprint(entry);
+    return rowEl;
   }
 
   _renderListViewFor(tab, entries) {
@@ -1018,6 +1128,7 @@ class AeorFileBrowserBase extends HTMLElement {
           isDeleted ? span.class('text-danger')('Deleted') : size,
         ),
       ).build(document);
+      cardEl._aeorEntryFingerprint = this._entryFingerprint(entry);
       gridEl.appendChild(cardEl);
     }
 
@@ -1245,6 +1356,210 @@ class AeorFileBrowserBase extends HTMLElement {
     }
   }
 
+  _scheduleBackgroundListingRefresh(tab, delayMs = 750) {
+    if (!tab) return;
+    if (tab.id !== this._active_tab_id) {
+      tab._needsRefresh = true;
+      return;
+    }
+    clearTimeout(tab._backgroundListingRefreshTimer);
+    tab._backgroundListingRefreshTimer = setTimeout(() => {
+      tab._backgroundListingRefreshTimer = null;
+      this._refreshListingInBackground(tab).catch((error) => {
+        console.warn('background listing refresh failed:', error);
+      });
+    }, delayMs);
+  }
+
+  async _refreshListingInBackground(tab = this._activeTab()) {
+    if (this._refreshSuppressed || !tab) return;
+    if (tab.id !== this._active_tab_id) {
+      tab._needsRefresh = true;
+      return;
+    }
+    if (tab.loading || tab.loading_more) {
+      tab._needsRefresh = true;
+      return;
+    }
+    if (tab._backgroundListingRefreshInFlight) {
+      tab._backgroundListingRefreshQueued = true;
+      return;
+    }
+
+    tab._backgroundListingRefreshInFlight = true;
+    const requestPath = tab.path;
+    const requestId = (tab._backgroundListingRequestId || 0) + 1;
+    tab._backgroundListingRequestId = requestId;
+    const oldEntries = tab.entries.slice();
+    const oldDeletedEntries = (tab._deletedEntries || []).slice();
+    const oldTotal = tab.total;
+    const oldFetchError = tab._fetchError;
+
+    try {
+      const limit = Math.max(tab.page_size || 100, tab.entries.length || 0);
+      const data = await this.browse(requestPath, limit, 0, this._sortField, this._sortOrder);
+      if (tab.path !== requestPath || tab._backgroundListingRequestId !== requestId) return;
+      if (tab.id !== this._active_tab_id) {
+        tab._needsRefresh = true;
+        return;
+      }
+
+      tab.entries = data.entries || [];
+      tab.total = (data.total != null) ? data.total : tab.entries.length;
+      tab._fetchError = null;
+      tab._sharedAccessChecked = false;
+
+      if (tab.entries.length > 0) {
+        this._applySharedPermissions(tab);
+      }
+
+      let patched = false;
+      if (this._showHidden) {
+        await this._fetchDeletedEntries(tab);
+      } else {
+        tab._deletedEntries = [];
+      }
+
+      if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
+        await this._showSharedAncestors(tab);
+      }
+
+      patched = this._patchListingDiff(tab, oldEntries, oldDeletedEntries, oldTotal, oldFetchError);
+      if (!patched) {
+        this._updateTabContent(tab.id);
+      } else {
+        this._refreshPreviewEntry(tab);
+        this._attachScrollListener();
+      }
+    } catch (error) {
+      if (tab.path !== requestPath || tab._backgroundListingRequestId !== requestId) return;
+      tab._fetchError = {
+        category: (error && error.category) || null,
+        status:   (error && error.status) || null,
+        message:  (error && error.message) ? String(error.message) : String(error),
+      };
+      this._updateTabContent(tab.id);
+    } finally {
+      tab._backgroundListingRefreshInFlight = false;
+      if (tab._backgroundListingRefreshQueued) {
+        tab._backgroundListingRefreshQueued = false;
+        this._scheduleBackgroundListingRefresh(tab, 250);
+      }
+    }
+  }
+
+  _patchListingDiff(tab, oldEntries, oldDeletedEntries, oldTotal, oldFetchError) {
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    const listing = container && container.querySelector('.tab-listing');
+    if (!container || !listing) return false;
+    if (oldFetchError || tab._fetchError) return false;
+
+    const oldVisible = this._getVisibleEntriesFrom(tab, oldEntries, oldDeletedEntries);
+    const newVisible = this._getVisibleEntries(tab);
+    if (oldVisible.length === 0 || newVisible.length === 0) return false;
+
+    const viewMode = tab.view_mode || 'list';
+    const patched = (viewMode === 'grid')
+      ? this._patchGridListing(tab, listing, newVisible)
+      : this._patchListListing(tab, listing, newVisible);
+    if (!patched) return false;
+
+    const countEl = listing.querySelector('.entry-count');
+    if (countEl) countEl.textContent = this._entryCountText(tab, newVisible);
+
+    if (oldTotal !== tab.total) {
+      const scrollLoading = listing.querySelector('.scroll-loading');
+      if (scrollLoading && !tab.loading_more) scrollLoading.remove();
+    }
+
+    this._pruneSelectionToEntries(tab);
+    this._updateSelectionVisual(tab);
+    this._bindFileEntryEvents(container, tab);
+    if (viewMode === 'grid') {
+      this._loadGridThumbnails(container);
+    }
+    return true;
+  }
+
+  _patchListListing(tab, listing, entries) {
+    const tbodyEl = listing.querySelector(':scope > table tbody');
+    if (!tbodyEl) return false;
+
+    const oldRows = new Map();
+    tbodyEl.querySelectorAll(':scope > .file-entry').forEach((row) => {
+      oldRows.set(row.dataset.name, row);
+    });
+
+    const nextRows = [];
+    for (const entry of entries) {
+      const fingerprint = this._entryFingerprint(entry);
+      let row = oldRows.get(entry.name);
+      if (!row || row._aeorEntryFingerprint !== fingerprint) {
+        row = this._renderListRow(entry);
+      }
+      nextRows.push(row);
+    }
+
+    tbodyEl.replaceChildren(...nextRows);
+    return true;
+  }
+
+  _patchGridListing(tab, listing, entries) {
+    const gridEl = listing.querySelector(':scope > .file-grid');
+    if (!gridEl) return false;
+
+    const oldCards = new Map();
+    gridEl.querySelectorAll(':scope > .file-entry').forEach((card) => {
+      oldCards.set(card.dataset.name, card);
+    });
+
+    const nextCards = [];
+    for (const entry of entries) {
+      const fingerprint = this._entryFingerprint(entry);
+      let card = oldCards.get(entry.name);
+      if (!card || card._aeorEntryFingerprint !== fingerprint) {
+        const tmpTab = { ...tab, entries: [entry] };
+        const rendered = this._renderGridViewFor(tmpTab, [entry]);
+        card = rendered.querySelector('.file-entry');
+      }
+      if (card) nextCards.push(card);
+    }
+
+    gridEl.replaceChildren(...nextCards);
+    return true;
+  }
+
+  _pruneSelectionToEntries(tab) {
+    if (!tab.selectedEntries || tab.selectedEntries.size === 0) return;
+    const names = new Set([
+      ...tab.entries.map((entry) => entry.name),
+      ...(tab._deletedEntries || []).map((entry) => entry.name),
+    ]);
+    const prefix = tab.path.replace(/\/$/, '') + '/';
+    for (const selected of [...tab.selectedEntries]) {
+      if (!selected.startsWith(prefix)) continue;
+      const name = selected.slice(prefix.length);
+      if (!names.has(name)) tab.selectedEntries.delete(selected);
+    }
+  }
+
+  _refreshPreviewEntry(tab) {
+    if (!tab.preview_entry) return;
+    const replacement =
+      tab.entries.find((entry) => entry.name === tab.preview_entry.name) ||
+      (tab._deletedEntries || []).find((entry) => entry.name === tab.preview_entry.name);
+    if (!replacement) {
+      tab.preview_entry = null;
+      tab.preview_component = null;
+      this._showPreview(tab);
+      return;
+    }
+    tab.preview_entry = replacement;
+    if (tab.id === this._active_tab_id) {
+      this._hydratePreview();
+    }
+  }
+
   // Update the persistent preview panel's contents in place — no DOM destruction.
   async _showPreview(tab) {
     const container = this.querySelector(`#tab-content-${tab.id}`);
@@ -1258,6 +1573,8 @@ class AeorFileBrowserBase extends HTMLElement {
 
     if (!entry) {
       panel.classList.add('hidden');
+      const contentEl = panel.querySelector('.preview-content');
+      if (contentEl) contentEl.textContent = '';
       return;
     }
 
@@ -1290,7 +1607,7 @@ class AeorFileBrowserBase extends HTMLElement {
         );
 
         // Load the preview from the snapshot
-        const contentType = latestVersion.content_type || 'application/octet-stream';
+        const contentType = resolvePreviewContentType(entry.name, latestVersion.content_type);
         const componentName = await loadPreviewComponent(contentType);
         const contentEl = panel.querySelector('.preview-content');
         if (componentName) {
@@ -1371,6 +1688,8 @@ class AeorFileBrowserBase extends HTMLElement {
 
     if (!componentName) {
       panel.classList.add('hidden');
+      const contentEl = panel.querySelector('.preview-content');
+      if (contentEl) contentEl.textContent = '';
       return;
     }
 
@@ -1391,11 +1710,10 @@ class AeorFileBrowserBase extends HTMLElement {
     if (this._hasPermission('d', entry)) {
       fileActions.appendChild(
         aeorConfirmButton
-          .class('preview-delete-btn')
+          .class('confirm-button-danger preview-delete-btn')
           .label('Delete')
           .confirmedText('Deleted!')
           .duration('1000')
-          .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')()
           .build(document),
       );
     }
@@ -1415,7 +1733,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // Set attributes on the preview element
     const previewEl = contentEl.querySelector(componentName);
     if (previewEl) {
-      const contentType = entry.content_type || 'application/octet-stream';
+      const contentType = resolvePreviewContentType(entry.name, entry.content_type);
       const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
       const previewSrc = await this.getPreviewSrc(filePath, contentType);
       previewEl.setAttribute('src', previewSrc);
@@ -1426,8 +1744,10 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     // Update meta
+    const metaContentType = resolvePreviewContentType(entry.name, entry.content_type)
+      || 'Unknown type';
     panel.querySelector('.preview-meta').textContent =
-      `${formatSize(entry.size)} \u00B7 ${entry.content_type || 'Unknown type'} \u00B7 ${formatDate(entry.created_at)}`;
+      `${formatSize(entry.size)} \u00B7 ${metaContentType} \u00B7 ${formatDate(entry.created_at)}`;
 
     // System file warning
     const warningEl = panel.querySelector('.preview-warning');
@@ -1510,7 +1830,12 @@ class AeorFileBrowserBase extends HTMLElement {
     const panel = container.querySelector('.preview-panel');
     if (!panel) return;
     const entry = tab.preview_entry;
-    if (!entry) { panel.classList.add('hidden'); return; }
+    if (!entry) {
+      panel.classList.add('hidden');
+      const contentEl = panel.querySelector('.preview-content');
+      if (contentEl) contentEl.textContent = '';
+      return;
+    }
 
     // Editable folder name
     const titleInput = panel.querySelector('.preview-title');
@@ -1529,11 +1854,10 @@ class AeorFileBrowserBase extends HTMLElement {
     if (this._hasPermission('d', entry)) {
       dirActionsEl.appendChild(
         aeorConfirmButton
-          .class('preview-delete-btn')
+          .class('confirm-button-danger preview-delete-btn')
           .label('Delete')
           .confirmedText('Deleted!')
           .duration('1000')
-          .style('--lpb-fill:var(--danger,#f85149);--lpb-text:var(--danger,#f85149);')()
           .build(document),
       );
     }
@@ -1718,6 +2042,9 @@ class AeorFileBrowserBase extends HTMLElement {
    */
   _bindFileEntryEvents(container, tab) {
     container.querySelectorAll('.file-entry').forEach((el) => {
+      if (el._aeorFileEntryEventsBound) return;
+      el._aeorFileEntryEventsBound = true;
+
       el.addEventListener('click', (event) => {
         const entryName = el.dataset.name;
         const entryType = parseInt(el.dataset.type, 10);
@@ -2294,10 +2621,13 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._activeTab();
     if (!tab) return;
 
-    tab.entries = [];
-    tab.total = null;
+    const requestPath = tab.path;
+    const requestId = (tab._listingRequestId || 0) + 1;
+    tab._listingRequestId = requestId;
+
     tab.loading_more = false;
     tab.loading = true;
+    tab._sharedAccessChecked = false;
     // Non-destructive loading: dim existing content instead of wiping it
     const container = this.querySelector(`#tab-content-${tab.id}`);
     const listingArea = container && container.querySelector('.tab-listing-area');
@@ -2310,13 +2640,16 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     try {
-      const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
+      const data = await this.browse(requestPath, tab.page_size || 100, 0, this._sortField, this._sortOrder);
+      if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
       tab._fetchError = null;
     } catch (error) {
+      if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       console.error('Failed to fetch listing:', error);
       tab.entries = [];
+      tab.total = null;
       // Capture the structured category from the throw site (see
       // AeorFileBrowser.browse). Render-side decides whether to surface
       // it as a banner or fall through to the empty-state — see
@@ -2344,15 +2677,17 @@ class AeorFileBrowserBase extends HTMLElement {
       tab._deletedEntries = [];
     }
 
-    tab.loading = false;
-    this._updateTabContent(tab.id);
-    this._attachScrollListener();
-
     // If listing is empty, check if the user has shared paths deeper in the
-    // tree and show ancestor entries for navigation.
+    // tree and show ancestor entries for navigation BEFORE clearing loading
+    // and rendering. Rendering first makes the no-access card flash as a
+    // fake loading state while this secondary access lookup is still pending.
     if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
       await this._showSharedAncestors(tab);
     }
+
+    tab.loading = false;
+    this._updateTabContent(tab.id);
+    this._attachScrollListener();
 
     // Auto-open a file preview if a share link targeted a specific file.
     // Set by AeorFileBrowserPortal.connectedCallback when ?path=<file> was
@@ -2392,6 +2727,8 @@ class AeorFileBrowserBase extends HTMLElement {
           content_type: s.content_type || null,
         }));
       }
+
+      tab._sharedAccessChecked = true;
 
       if (this._sharedPathData.length === 0) return;
 
@@ -2458,10 +2795,9 @@ class AeorFileBrowserBase extends HTMLElement {
         // Snapshot) must NOT be enabled — the user has perms on the FILE,
         // not on the directory itself.
         tab._listing_from_share_patterns = fileEntries.length > 0 && dirEntries.length === 0;
-        this._updateTabContent(tab.id);
       }
     } catch (e) {
-      // non-critical
+      tab._sharedAccessChecked = false;
     }
   }
 
@@ -2499,17 +2835,21 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab || tab.loading_more) return;
     if (tab.entries.length >= (tab.total || 0)) return;
 
+    const requestPath = tab.path;
+    const requestId = tab._listingRequestId || 0;
     tab.loading_more = true;
     this._updateTabContent(tab.id);
 
     try {
-      const data = await this.browse(tab.path, tab.page_size || 100, tab.entries.length, this._sortField, this._sortOrder);
+      const data = await this.browse(requestPath, tab.page_size || 100, tab.entries.length, this._sortField, this._sortOrder);
+      if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       const newEntries = data.entries || [];
       for (const entry of newEntries) {
         tab.entries.push(entry);
       }
       tab.total = (data.total != null) ? data.total : tab.entries.length;
     } catch (error) {
+      if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       console.error('Failed to fetch next page:', error);
     }
 
@@ -2551,7 +2891,10 @@ class AeorFileBrowserBase extends HTMLElement {
     const tab = this._activeTab();
     if (!tab || !tab.preview_entry) return;
 
-    const contentType = tab.preview_entry.content_type || 'application/octet-stream';
+    const contentType = resolvePreviewContentType(
+      tab.preview_entry.name,
+      tab.preview_entry.content_type,
+    );
     tab.preview_component = await loadPreviewComponent(contentType);
     this._showPreview(tab);
   }
@@ -2648,7 +2991,7 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _showAddIndexModal(configPath) {
-    const { select, option } = elements;
+    const { option } = elements;
     const fieldGroup = (labelText, inputBuilder) =>
       div.class('modal-field-group')(
         label.class('modal-field-label')(labelText),
@@ -3325,7 +3668,7 @@ class AeorFileBrowserBase extends HTMLElement {
       return !name.startsWith('user:');
     });
 
-    const { select, option } = elements;
+    const { option } = elements;
     const aeorTabView = elements['aeor-tab-view'];
     const aeorTab = elements['aeor-tab'];
     const aeorCrudlify = elements['aeor-crudlify'];
@@ -3346,23 +3689,22 @@ class AeorFileBrowserBase extends HTMLElement {
     const peopleTab = aeorTab.label('People').name('people')(
       section(
         fieldLabel('Users'),
-        input.type('text').class('share-users-filter modal-field-input share-filter-input').placeholder('Search users...')(),
-        select.class('share-users-select modal-field-input share-multi-select').multiple('')(
+        aeorSelect.class('share-users-select modal-field-input share-multi-select')
+          .multiple('').placeholder('Select users...')(
           ...userOptionEls,
         ),
-        div.class('share-select-hint')('Hold Ctrl/Cmd to select multiple'),
       ),
       section(
         fieldLabel('Groups'),
-        input.type('text').class('share-groups-filter modal-field-input share-filter-input').placeholder('Search groups...')(),
-        select.class('share-groups-select modal-field-input share-multi-select').multiple('')(
+        aeorSelect.class('share-groups-select modal-field-input share-multi-select')
+          .multiple('').placeholder('Select groups...')(
           ...groupOptionEls,
         ),
       ),
       section(
         fieldLabel('Permission Level'),
-        select.class('share-permission-select modal-field-input')(
-          option.value('.r..l...')('View only'),
+        aeorSelect.class('share-permission-select modal-field-input').placeholder('Select permission...')(
+          option.value('.r..l...').selected('')('View only'),
           option.value('crudl...')('Can edit'),
           option.value('crudlify')('Full access'),
           option.value('custom')('Custom'),
@@ -3377,8 +3719,8 @@ class AeorFileBrowserBase extends HTMLElement {
       ),
     );
 
-    const expirySelect = select.class('link-expiry-select modal-field-input')(
-      option.value('')('Never'),
+    const expirySelect = aeorSelect.class('link-expiry-select modal-field-input').placeholder('Select expiration...')(
+      option.value('').selected('')('Never'),
       option.value('1')('1 day'),
       option.value('7')('7 days'),
       option.value('30')('30 days'),
@@ -3396,7 +3738,11 @@ class AeorFileBrowserBase extends HTMLElement {
                 l.expires_at ? new Date(l.expires_at).toLocaleDateString() : 'Never expires',
               ),
             ),
-            button.class('danger small link-revoke-btn').dataKeyId(l.key_id)('×'),
+            aeorConfirmButton
+              .class('confirm-button-danger link-revoke-btn')
+              .label('Revoke')
+              .duration('1000')
+              .dataKeyId(l.key_id)(),
           ),
         )
       : [div.class('no-active-links')('No active links')];
@@ -3404,7 +3750,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const linkTab = aeorTab.label('Link').name('link')(
       section(
         fieldLabel('Permission Level'),
-        select.class('link-permission-select modal-field-input')(
+        aeorSelect.class('link-permission-select modal-field-input').placeholder('Select permission...')(
           option.value('-r--l---')('View only'),
           option.value('crudl...').selected('')('Can edit'),
           option.value('crudlify')('Full access'),
@@ -3444,8 +3790,11 @@ class AeorFileBrowserBase extends HTMLElement {
                 span.class('share-entry-name')(target),
                 span.class('share-entry-perm')(perm),
               ),
-              button.class('danger small share-revoke-btn')
-                .dataGroup(s.group || '').dataPattern(pattern)('×'),
+              aeorConfirmButton
+                .class('confirm-button-danger share-revoke-btn')
+                .label('Revoke')
+                .duration('1000')
+                .dataGroup(s.group || '').dataPattern(pattern)(),
             );
           }),
         )
@@ -3476,22 +3825,6 @@ class AeorFileBrowserBase extends HTMLElement {
       customFlags.classList.toggle('hidden', permSelect.value !== 'custom');
     });
 
-    // Search filter for user select
-    body.querySelector('.share-users-filter').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      for (const opt of usersSelect.options) {
-        opt.classList.toggle('hidden', !opt.text.toLowerCase().includes(q));
-      }
-    });
-
-    // Search filter for group select
-    body.querySelector('.share-groups-filter').addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase();
-      for (const opt of groupsSelect.options) {
-        opt.classList.toggle('hidden', !opt.text.toLowerCase().includes(q));
-      }
-    });
-
     let resolved = false;
     const done = () => {
       if (resolved) return;
@@ -3508,8 +3841,8 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Submit share
     body.querySelector('.share-submit').addEventListener('click', async () => {
-      const selectedUsers = Array.from(usersSelect.selectedOptions).map((o) => o.value);
-      const selectedGroups = Array.from(groupsSelect.selectedOptions).map((o) => o.value);
+      const selectedUsers = usersSelect.values || [];
+      const selectedGroups = groupsSelect.values || [];
       const permLevel = getPermissionString();
 
       if (selectedUsers.length === 0 && selectedGroups.length === 0) {
@@ -3534,8 +3867,8 @@ class AeorFileBrowserBase extends HTMLElement {
     modal.addEventListener('close', done);
 
     // Revoke buttons (People tab)
-    body.querySelectorAll('.share-revoke-btn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+    body.querySelectorAll('aeor-confirm-button.share-revoke-btn').forEach((btn) => {
+      btn.addEventListener('confirm', async () => {
         const group = btn.dataset.group;
         const pattern = btn.dataset.pattern;
         try {
@@ -3543,7 +3876,7 @@ class AeorFileBrowserBase extends HTMLElement {
           if (window.aeorToast)
             window.aeorToast('Share revoked', 'success');
           // Remove the row from DOM
-          btn.closest('div[style]').remove();
+          btn.closest('.share-entry-row')?.remove();
         } catch (error) {
           if (window.aeorToast)
             window.aeorToast('Revoke failed: ' + error.message, 'error');
@@ -3602,11 +3935,11 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     // Revoke buttons (Link tab)
-    body.querySelectorAll('.link-revoke-btn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+    body.querySelectorAll('aeor-confirm-button.link-revoke-btn').forEach((btn) => {
+      btn.addEventListener('confirm', async () => {
         try {
           await this.revokeShareLink(btn.dataset.keyId);
-          btn.closest('div[style]').remove();
+          btn.closest('.link-entry-row')?.remove();
           if (window.aeorToast) window.aeorToast('Link revoked', 'success');
         } catch (error) {
           if (window.aeorToast) window.aeorToast('Revoke failed: ' + error.message, 'error');
@@ -3853,7 +4186,11 @@ class AeorFileBrowserBase extends HTMLElement {
     const container = this.querySelector(`#tab-content-${tab.id}`);
     if (container) {
       const panel = container.querySelector('.preview-panel');
-      if (panel) panel.classList.add('hidden');
+      if (panel) {
+        panel.classList.add('hidden');
+        const contentEl = panel.querySelector('.preview-content');
+        if (contentEl) contentEl.textContent = '';
+      }
     }
     this._fetchListing();
   }
@@ -4026,7 +4363,10 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!contentEl) return;
     const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
     // Use version info's content_type if available (deleted files have null content_type)
-    const contentType = (versionInfo && versionInfo.content_type) || entry.content_type || 'application/octet-stream';
+    const contentType = resolvePreviewContentType(
+      entry.name,
+      (versionInfo && versionInfo.content_type) || entry.content_type,
+    );
     const componentName = await loadPreviewComponent(contentType);
     if (!componentName) return;
 
@@ -4041,6 +4381,8 @@ class AeorFileBrowserBase extends HTMLElement {
       const src = await this.getPreviewSrc(filePath + '?version=' + encodeURIComponent(snapshot), contentType);
       previewEl.setAttribute('src', src);
       previewEl.setAttribute('filename', entry.name);
+      previewEl.setAttribute('content-type', contentType);
+      previewEl.setAttribute('size', (versionInfo && versionInfo.size) || entry.size || 0);
       if (previewEl.load) previewEl.load();
     }
     panel.querySelector('.preview-meta').textContent =
@@ -4134,42 +4476,12 @@ class AeorFileBrowserBase extends HTMLElement {
    * true (confirmed) or false (cancelled/dismissed).
    */
   _confirm(title, message, isHtml = false, confirmLabel = 'Delete', confirmStyle = 'danger') {
-    return new Promise((resolve) => {
-      const { p } = elements;
-      // The message body can be a plain string or pre-rendered HTML. For
-      // HTML mode we still need an innerHTML assignment because callers
-      // pass an HTML fragment string (e.g. for inline filename emphasis);
-      // for plain strings we use a text node which is the safe default.
-      const textEl = p.class('confirm-modal-text')().build(document);
-      if (isHtml) {
-        textEl.innerHTML = message;
-      } else {
-        textEl.textContent = message;
-      }
-
-      const modal = aeorModal(
-        textEl,
-        div.class('modal-footer-actions')(
-          button.class('secondary small confirm-cancel')('Cancel'),
-          button.class(`${confirmStyle} small confirm-ok`)(confirmLabel),
-        ),
-      ).build(document);
-      modal.title = title;
-      document.body.appendChild(modal);
-
-      let resolved = false;
-      const done = (result) => {
-        if (resolved) return;
-        resolved = true;
-        modal.remove();
-        resolve(result);
-      };
-
-      modal.querySelector('.confirm-cancel').addEventListener('click', () => done(false));
-      modal.querySelector('.confirm-ok').addEventListener('click', () => done(true));
-      modal.addEventListener('close', () => done(false));
+    return showConfirm(title, message, {
+      confirmText: confirmLabel,
+      danger: confirmStyle === 'danger',
+      html: isHtml,
     });
   }
 }
 
-export { AeorFileBrowserBase, loadPreviewComponent };
+export { AeorFileBrowserBase, loadPreviewComponent, resolvePreviewContentType };

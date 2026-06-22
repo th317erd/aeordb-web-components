@@ -6,7 +6,9 @@ const { audio } = elements;
 
 class AeorPreviewAudio extends HTMLElement {
   connectedCallback() {
-    this._render();
+    if (!this.querySelector('audio')) {
+      this._render();
+    }
   }
 
   _render() {
@@ -20,7 +22,12 @@ class AeorPreviewAudio extends HTMLElement {
       this._render();
       audioEl = this.querySelector('audio');
     }
-    audioEl.src = this.getAttribute('src') || '';
+    const nextSrc = this.getAttribute('src') || '';
+    if (this._loadedSrc === nextSrc && audioEl.getAttribute('src') === nextSrc) {
+      return;
+    }
+    this._loadedSrc = nextSrc;
+    audioEl.src = nextSrc;
     audioEl.load();
   }
 }

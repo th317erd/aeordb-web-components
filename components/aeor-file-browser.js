@@ -24,6 +24,25 @@ function _saveOpenDefault(value) {
   mergePrefs({ file_browser: { open_default: value } });
 }
 
+function _encodeWildcardPath(path) {
+  const clean = (path || '/').replace(/^\/+/, '');
+  if (!clean) return '';
+  return clean
+    .split('/')
+    .map((segment) => segment ? encodeURIComponent(segment) : '')
+    .join('/');
+}
+
+async function _responseError(response, fallback = 'Request failed') {
+  const body = await response.json().catch(() => null);
+  const error = body?.error;
+  if (error) {
+    const upstream = error.match(/^upstream rejected \(HTTP \d+\): engine refused [^:]+:\s*(.+)$/);
+    return upstream ? upstream[1] : error;
+  }
+  return `${fallback}: ${response.status}`;
+}
+
 // Resolve the engine-side absolute path for the tab's current view.
 // Joins the relationship's remote_path with the tab's relative path,
 // collapsing any redundant slashes. Returns null when the relationship
@@ -112,11 +131,13 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   constructor() {
     super();
     this._relationships = [];
+    this._relationshipFileEventSources = new Map();
   }
 
-  connectedCallback() {
-    super.connectedCallback();
-    this._fetchRelationships();
+  async connectedCallback() {
+    await super.connectedCallback();
+    await this._fetchRelationships();
+    this._syncRelationshipFileEventStreams();
     this._connectSyncActivityStream();
     // SSE only fires on state CHANGES. If the engine recovered before we
     // subscribed (or before we mounted), no "up" event will ever arrive
@@ -131,6 +152,10 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       this._syncActivitySource.close();
       this._syncActivitySource = null;
     }
+    for (const source of this._relationshipFileEventSources.values()) {
+      source.close();
+    }
+    this._relationshipFileEventSources.clear();
   }
 
   // Called by aeor-app when this page becomes visible. The component
@@ -138,6 +163,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   // created elsewhere (Sync page) wouldn't appear until full reload.
   refresh() {
     this._fetchRelationships();
+    this._syncRelationshipFileEventStreams();
     // Page becoming visible is also a good moment to retry — the user
     // may have started the engine while looking at a different page.
     this._retryUnreachableTabs();
@@ -219,18 +245,15 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
         // and log_full_sync), so non-zero means the listing has new
         // content to show.
         if ((data.files_affected || 0) === 0) return;
+        if (this._relationshipFileEventSources.has(data.relationship_id)) return;
 
-        // Refresh every open tab matching the affected relationship.
-        // Most of the time that's just the active tab, but multi-tab
-        // users browsing the same relationship in two tabs should see
-        // both update.
+        // Refresh every open tab matching the affected relationship. Active
+        // tabs get a coalesced background refresh that diffs rows/cards in
+        // place; background tabs are marked stale and refresh on activation.
         for (const tab of this._tabs || []) {
           if (tab.relationship_id !== data.relationship_id) continue;
           if (tab.id === this._active_tab_id) {
-            // Active tab: re-fetch via the standard listing pipeline so
-            // the dimmed-loading + repopulate flow runs (same path the
-            // user would get from clicking the breadcrumb).
-            this._fetchListing();
+            this._scheduleBackgroundListingRefresh(tab);
           } else {
             // Background tab: mark stale; it'll re-fetch on activation.
             tab._needsRefresh = true;
@@ -246,6 +269,88 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     }
   }
 
+  _syncRelationshipFileEventStreams() {
+    const relationshipIds = new Set(
+      (this._tabs || [])
+        .map((tab) => tab.relationship_id)
+        .filter(Boolean),
+    );
+
+    for (const relationshipId of relationshipIds) {
+      this._ensureRelationshipFileEventStream(relationshipId);
+    }
+
+    for (const [relationshipId, source] of this._relationshipFileEventSources.entries()) {
+      if (relationshipIds.has(relationshipId)) continue;
+      source.close();
+      this._relationshipFileEventSources.delete(relationshipId);
+    }
+  }
+
+  _ensureRelationshipFileEventStream(relationshipId) {
+    if (!relationshipId || this._relationshipFileEventSources.has(relationshipId)) return;
+
+    try {
+      const url = `/api/v1/sync/${encodeURIComponent(relationshipId)}/file-events`;
+      const source = new EventSource(url);
+      source.addEventListener('entries_created', (event) => {
+        this._handleRelationshipFileEvent(relationshipId, event);
+      });
+      source.addEventListener('entries_deleted', (event) => {
+        this._handleRelationshipFileEvent(relationshipId, event);
+      });
+      source.addEventListener('upstream_error', () => {
+        // EventSource reconnects automatically; keep sync_activity as a
+        // coarse fallback only if this stream could not be established.
+      });
+      source.onerror = () => {};
+      this._relationshipFileEventSources.set(relationshipId, source);
+    } catch (error) {
+      console.warn('relationship file-event stream unavailable:', error);
+    }
+  }
+
+  _handleRelationshipFileEvent(relationshipId, event) {
+    let data;
+    try { data = JSON.parse(event.data); } catch (_) { return; }
+    if (!data || data.relationship_id !== relationshipId || !data.path) return;
+
+    for (const tab of this._tabs || []) {
+      if (tab.relationship_id !== relationshipId) continue;
+      if (!this._fileEventAffectsTab(tab, data.path)) continue;
+
+      if (tab.id === this._active_tab_id) {
+        this._scheduleBackgroundListingRefresh(tab, 250);
+      } else {
+        tab._needsRefresh = true;
+      }
+    }
+  }
+
+  _fileEventAffectsTab(tab, path) {
+    const eventPath = this._normalizeFileEventPath(path);
+    const tabPath = this._normalizeDirectoryPath(tab && tab.path);
+    if (!eventPath || !tabPath) return false;
+    if (tabPath === '/') return eventPath.startsWith('/');
+    return eventPath === tabPath.slice(0, -1) || eventPath.startsWith(tabPath);
+  }
+
+  _normalizeFileEventPath(path) {
+    let normalized = String(path || '').trim();
+    if (!normalized) return null;
+    if (!normalized.startsWith('/')) normalized = '/' + normalized;
+    return normalized.replace(/\/+/g, '/');
+  }
+
+  _normalizeDirectoryPath(path) {
+    let normalized = String(path || '/').trim();
+    if (!normalized) normalized = '/';
+    if (!normalized.startsWith('/')) normalized = '/' + normalized;
+    normalized = normalized.replace(/\/+/g, '/');
+    if (!normalized.endsWith('/')) normalized += '/';
+    return normalized;
+  }
+
   // ---------------------------------------------------------------------------
   // Abstract method implementations
   // ---------------------------------------------------------------------------
@@ -253,7 +358,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   async browse(path, limit, offset) {
     const tab = this._activeTab();
     if (!tab) throw new Error('No active tab');
-    const encodedPath = (path === '/') ? '' : encodeURIComponent(path);
+    const encodedPath = _encodeWildcardPath(path);
     const baseUrl = encodedPath
       ? `/api/v1/browse/${tab.relationship_id}/${encodedPath}`
       : `/api/v1/browse/${tab.relationship_id}`;
@@ -281,7 +386,10 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   fileUrl(path) {
     const tab = this._activeTab();
     if (!tab) return '#';
-    return `/api/v1/files/${tab.relationship_id}/${encodeURIComponent(path)}`;
+    const encodedPath = _encodeWildcardPath(path);
+    return encodedPath
+      ? `/api/v1/files/${tab.relationship_id}/${encodedPath}`
+      : `/api/v1/files/${tab.relationship_id}`;
   }
 
   async upload(path, body, contentType) {
@@ -312,7 +420,12 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
   async readFile(path) {
     const tab = this._activeTab();
     if (!tab) return null;
-    const response = await fetch(`/api/v1/files/${tab.relationship_id}/${encodeURIComponent(path)}`);
+    const encodedPath = _encodeWildcardPath(path);
+    const response = await fetch(
+      encodedPath
+        ? `/api/v1/files/${tab.relationship_id}/${encodedPath}`
+        : `/api/v1/files/${tab.relationship_id}`,
+    );
     if (!response.ok) return null;
     return response.text();
   }
@@ -460,6 +573,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       const response = await fetch('/api/v1/sync');
       if (!response.ok) throw new Error(`Request failed: ${response.status}`);
       this._relationships = await response.json();
+      this._syncRelationshipFileEventStreams();
       if (!this._active_tab_id) this.render();
     } catch (error) {
       console.error('Failed to fetch relationships:', error);
@@ -527,6 +641,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     this._active_tab_id = tabId;
     this._saveState();
     this.render();
+    this._syncRelationshipFileEventStreams();
 
     // Fetch directly using raw fetch() instead of this.browse() or
     // this._fetchListing(). Both of those hang when called from a
@@ -553,6 +668,11 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
           self._updateTabContent(newTab.id);
         });
     }
+  }
+
+  _closeTab(tabId) {
+    super._closeTab(tabId);
+    this._syncRelationshipFileEventStreams();
   }
 
   // ---------------------------------------------------------------------------
@@ -659,7 +779,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paths, permissions, expires_in_days: expiresInDays }),
     });
-    if (!response.ok) throw new Error(`${response.status}`);
+    if (!response.ok) throw new Error(await _responseError(response, 'Create link failed'));
     return response.json();
   }
 
@@ -677,7 +797,7 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     const response = await fetch(`/api/v1/shares/${tab.relationship_id}/links/${encodeURIComponent(keyId)}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error(`${response.status}`);
+    if (!response.ok) throw new Error(await _responseError(response, 'Revoke link failed'));
   }
 
   // ---------------------------------------------------------------------------
