@@ -57,6 +57,13 @@ function _resolveRemotePath(relationships, tab) {
   return rest ? `${base}/${rest}/` : `${base}/`;
 }
 
+function _joinRelationshipPath(basePath, relativePath, isDirectory = false) {
+  const base = (basePath || '/').replace(/\/+$/, '');
+  const rest = (relativePath || '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  const joined = rest ? `${base}/${rest}` : `${base || '/'}`;
+  return isDirectory ? `${joined.replace(/\/+$/, '')}/` : joined;
+}
+
 // Mint a pre-authenticated portal URL for the given connection + engine
 // path, then hand the URL to Tauri's open_external_url. The endpoint
 // exchanges the connection's API key for a short-lived JWT and embeds it
@@ -86,6 +93,27 @@ async function _openRemotely(connectionId, remotePath) {
     }
   } catch (error) {
     console.error('Failed to open remotely:', error);
+  }
+}
+
+async function _openLocalRelationshipPath(relationshipId, relationshipPath) {
+  if (!relationshipId || !relationshipPath) return;
+  try {
+    const response = await fetch(`/api/v1/files/${encodeURIComponent(relationshipId)}/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: relationshipPath.replace(/^\/+/, '') }),
+    });
+    if (!response.ok) {
+      const message = await _responseError(response, 'Open locally failed');
+      throw new Error(message);
+    }
+  } catch (error) {
+    if (window.aeorToast) {
+      window.aeorToast(`Open locally failed: ${error.message}`, 'error');
+    } else {
+      console.error('Open locally failed:', error);
+    }
   }
 }
 
@@ -383,6 +411,39 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     return response.json();
   }
 
+  async search(query, limit, offset) {
+    const tab = this._activeTab();
+    if (!tab) throw new Error('No active tab');
+    const response = await fetch(`/api/v1/search/${tab.relationship_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        limit: limit || 100,
+        offset: offset || 0,
+      }),
+    });
+    if (!response.ok) {
+      let body = null;
+      try { body = await response.json(); } catch (_) { /* non-JSON */ }
+      const err = new Error(
+        (body && body.error) || `Search failed: ${response.status}`,
+      );
+      err.status   = response.status;
+      err.category = (body && body.category) || null;
+      throw err;
+    }
+    const data = await response.json();
+    return {
+      entries: (data.entries || []).map((entry) => ({
+        ...entry,
+        _actual_path: entry.path,
+        _search_path_label: entry.display_path,
+      })),
+      total: (data.total != null) ? data.total : (data.entries || []).length,
+    };
+  }
+
   fileUrl(path) {
     const tab = this._activeTab();
     if (!tab) return '#';
@@ -506,8 +567,6 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     const rel = this._relationships.find((r) => r.id === tab.relationship_id);
     if (!rel) return null;
 
-    const localPath  = _resolveLocalPath(this._relationships, tab);
-    const remotePath = _resolveRemotePath(this._relationships, tab);
     const connectionId = rel.remote_connection_id || null;
 
     const initial = _loadOpenDefault();
@@ -529,14 +588,46 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
 
     btn.addEventListener('primary-click', (event) => {
       const id = event.detail?.id || _loadOpenDefault();
+      const target = this._openTargetForTab(tab);
       if (id === 'remote') {
+        const remotePath = target
+          ? _joinRelationshipPath(rel.remote_path, target.path, target.isDirectory)
+          : _resolveRemotePath(this._relationships, tab);
         _openRemotely(connectionId, remotePath);
       } else {
-        if (localPath) openFolder(localPath);
+        if (target) {
+          _openLocalRelationshipPath(tab.relationship_id, target.path);
+        } else {
+          const localPath = _resolveLocalPath(this._relationships, tab);
+          if (localPath) openFolder(localPath);
+        }
       }
     });
 
     return btn;
+  }
+
+  _openTargetForTab(tab) {
+    if (!tab) return null;
+    const allEntries = [...(tab.entries || []), ...(tab._deletedEntries || [])];
+    const selectedPaths = [...(tab.selectedEntries || [])];
+    let selectedPath = null;
+
+    if (selectedPaths.length === 1) {
+      selectedPath = selectedPaths[0];
+    } else if (selectedPaths.length === 0 && tab.preview_entry) {
+      selectedPath = this._entryPath(tab, tab.preview_entry);
+    }
+
+    if (!selectedPath) return null;
+    const entry = allEntries.find((candidate) => this._entryPath(tab, candidate) === selectedPath)
+      || (tab.preview_entry && this._entryPath(tab, tab.preview_entry) === selectedPath ? tab.preview_entry : null);
+    if (!entry) return null;
+    return {
+      entry,
+      path: selectedPath,
+      isDirectory: entry.entry_type === ENTRY_TYPE_DIR,
+    };
   }
 
   // Override _saveState to persist relationship metadata
@@ -549,6 +640,8 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
         view_mode:         tab.view_mode,
         page_size:         tab.page_size,
         preview_height:    tab.preview_height,
+        search_query:      tab.search_query || '',
+        search_origin_path: tab.search_origin_path || null,
         relationship_id:   tab.relationship_id,
         relationship_name: tab.relationship_name,
       }));
@@ -633,6 +726,8 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
       preview_entry:     null,
       preview_component: null,
       preview_height:    null,
+      search_query:      '',
+      search_origin_path: null,
       selectedEntries:   new Set(),
       lastSelectedAnchor: null,
       relationship_id:   relationshipId,
@@ -694,10 +789,12 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
 
       el.setAttribute('draggable', 'true');
       el.addEventListener('dragstart', (event) => {
-        const entry = tab.entries.find((e) => e.name === el.dataset.name);
+        const entryPath = this._entryPathFromElement(tab, el);
+        const entry = tab.entries.find((e) => this._entryPath(tab, e) === entryPath)
+          || tab.entries.find((e) => e.name === el.dataset.name);
         if (!entry) return;
 
-        const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+        const filePath = this._entryPath(tab, entry);
         const fullUrl = `${window.location.origin}${this.fileUrl(filePath)}`;
         const mimeType = entry.content_type || 'application/octet-stream';
 
@@ -833,12 +930,8 @@ export class AeorFileBrowser extends AeorFileBrowserBase {
     if (action === 'open-local') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
-      const filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
-      fetch(`/api/v1/files/${tab.relationship_id}/open`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath.replace(/^\//, '') }),
-      });
+      const filePath = this._entryPath(tab, tab.preview_entry);
+      _openLocalRelationshipPath(tab.relationship_id, filePath);
       return;
     }
     super._handlePreviewAction(action);

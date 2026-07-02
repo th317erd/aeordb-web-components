@@ -281,6 +281,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._showHidden = getPref('file_browser.show_hidden', false) === true;
     this._sortField = 'name';
     this._sortOrder = 'asc';
+    this._searchDebounceTimer = null;
   }
 
   // -------------------------------------------------------------------------
@@ -290,6 +291,11 @@ class AeorFileBrowserBase extends HTMLElement {
   // browse(path, limit, offset) → { entries: [...], total: N }
   async browse(path, limit, offset) {
     throw new Error('AeorFileBrowserBase.browse() must be implemented by subclass');
+  }
+
+  // search(query, limit, offset) -> { entries: [...], total: N }
+  async search(query, limit, offset) {
+    throw new Error('AeorFileBrowserBase.search() must be implemented by subclass');
   }
 
   // fileUrl(path) → string URL for thumbnails, preview src, etc.
@@ -573,6 +579,8 @@ class AeorFileBrowserBase extends HTMLElement {
         view_mode:      tab.view_mode,
         page_size:      tab.page_size,
         preview_height: tab.preview_height,
+        search_query:   tab.search_query || '',
+        search_origin_path: tab.search_origin_path || null,
       }));
       mergePrefs({
         file_browser: {
@@ -594,20 +602,32 @@ class AeorFileBrowserBase extends HTMLElement {
       this._active_tab_id = state.active_tab_id || null;
       this._tab_counter   = state.tab_counter   || 0;
 
-      this._tabs = (state.tabs || []).map((tab) => ({
-        ...tab,
-        name:              tab.name || this.rootLabel(),
-        entries:           [],
-        total:             null,
-        loading:           false,
-        loading_more:      false,
-        page_size:         tab.page_size || 100,
-        preview_entry:     null,
-        preview_component: null,
-        preview_height:    tab.preview_height || null,
-        selectedEntries:   new Set(),
-        lastSelectedAnchor: null,
-      }));
+      this._tabs = (state.tabs || []).map((tab) => {
+        const searchQuery = tab.search_query || '';
+        let path = tab.path || '/';
+        let searchOriginPath = tab.search_origin_path || null;
+        if (this._isSearchPath(path) && !searchQuery.trim()) {
+          path = searchOriginPath || '/';
+          searchOriginPath = null;
+        }
+        return {
+          ...tab,
+          name:              tab.name || this.rootLabel(),
+          path,
+          entries:           [],
+          total:             null,
+          loading:           false,
+          loading_more:      false,
+          page_size:         tab.page_size || 100,
+          preview_entry:     null,
+          preview_component: null,
+          preview_height:    tab.preview_height || null,
+          search_query:      searchQuery,
+          search_origin_path: searchOriginPath,
+          selectedEntries:   new Set(),
+          lastSelectedAnchor: null,
+        };
+      });
     } catch (error) {
       // start fresh
     }
@@ -707,6 +727,61 @@ class AeorFileBrowserBase extends HTMLElement {
       .build(document);
   }
 
+  _renderSearchBar(tab = this._activeTab()) {
+    const value = tab ? (tab.search_query || '') : '';
+    const disabled = !tab;
+
+    return div.class('file-browser-search')(
+      div.class('file-browser-search-field')(
+        input
+          .type('search')
+          .class('file-browser-search-input')
+          .placeholder('Search files')
+          .spellcheck('false')
+          .value(value)
+          .ariaLabel('Search files')
+          .disabled(disabled ? 'disabled' : null)(),
+        button
+          .type('button')
+          .class('file-browser-search-clear' + (value ? '' : ' hidden'))
+          .title('Clear search')
+          .ariaLabel('Clear search')
+          .disabled(disabled ? 'disabled' : null)('\u00D7'),
+      ),
+    );
+  }
+
+  _renderTabHeader(tab) {
+    const configActions = this._getConfigActions(tab);
+    const isSearchMode = this._isSearchPath(tab.path);
+
+    const headerActions = div.class('page-header-actions')(
+      !isSearchMode && configActions ? div.class('config-actions-bar')(...configActions) : null,
+      !isSearchMode ? button.class('secondary small header-paste-btn hidden')('Paste') : null,
+      // Subclass-injected actions (e.g. desktop client's "Open Locally").
+      // Placed BEFORE the Snapshot/New Folder/Upload group so they sit
+      // on the left side of those affordances.
+      !isSearchMode ? this.directoryActions(tab) : null,
+      !isSearchMode && this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
+      !isSearchMode && this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
+      !isSearchMode && this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
+      !isSearchMode && this._hasPermission('c') ? input.type('file').class('upload-input hidden').multiple('')() : null,
+    );
+
+    const actionRow = div.class('tab-action-row')().build(document);
+    actionRow.appendChild(this._renderSearchBar(tab).build(document));
+    actionRow.appendChild(headerActions.build(document));
+
+    const header = div.class('tab-header')().build(document);
+    header.appendChild(
+      div.class('tab-breadcrumb-row')(
+        this._renderBreadcrumbs(tab),
+      ).build(document),
+    );
+    header.appendChild(actionRow);
+    return header;
+  }
+
   _hydrateTabView() {
     const tabView = this.querySelector('#file-tab-view');
     if (!tabView) return;
@@ -761,6 +836,8 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!entry) return '';
     return JSON.stringify([
       entry.name,
+      entry._actual_path || entry.path || '',
+      entry._search_path_label || entry.display_path || '',
       entry.entry_type,
       entry.size,
       entry.content_type || '',
@@ -787,27 +864,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _renderDirectoryViewFor(tab) {
     const viewMode    = tab.view_mode || 'list';
-    const configActions = this._getConfigActions(tab);
-
-    // Per-tab header (breadcrumbs + per-tab actions).
-    const headerActions = div.class('page-header-actions')(
-      configActions ? div.class('config-actions-bar')(...configActions) : null,
-      button.class('secondary small header-paste-btn hidden')('Paste'),
-      // Subclass-injected actions (e.g. desktop client's "Open Locally").
-      // Placed BEFORE the Snapshot/New Folder/Upload group so they sit
-      // on the left side of those affordances.
-      this.directoryActions(tab),
-      this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
-      this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
-      this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
-      this._hasPermission('c') ? input.type('file').class('upload-input hidden').multiple('')() : null,
-    );
-
-    const header = div.class('tab-header')().build(document);
-    const pageHeader = div.class('page-header')().build(document);
-    pageHeader.appendChild(this._renderBreadcrumbs(tab));
-    pageHeader.appendChild(headerActions.build(document));
-    header.appendChild(pageHeader);
+    const header = this._renderTabHeader(tab);
 
     // Unified toolbar: selection actions on left, view controls on right.
     // Selection bar buttons are always in the DOM. Visibility is toggled
@@ -937,7 +994,9 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     if (tab.loading && tab.entries.length === 0) {
-      return div.class('empty-state')(' ').build(document);
+      return div.class('empty-state')(
+        this._isSearchPath(tab.path) ? 'Searching...' : ' ',
+      ).build(document);
     }
 
     const visible = this._getVisibleEntries(tab);
@@ -1007,7 +1066,7 @@ class AeorFileBrowserBase extends HTMLElement {
     ).build(document);
   }
 
-  _renderListRow(entry) {
+  _renderListRow(entry, tab = this._activeTab()) {
     const isDir    = (entry.entry_type === ENTRY_TYPE_DIR);
     const isDeleted = !!entry._deleted;
     const clipboard = this._getClipboard();
@@ -1023,9 +1082,15 @@ class AeorFileBrowserBase extends HTMLElement {
     // DOM node) lets the surrounding `td()` compose it via the
     // element-builder's child machinery without stringification.
     const fileIconSpan = span.class('file-icon')(icon);
-    const nameSpan = isDeleted
+    const nameText = isDeleted
       ? span.class('deleted-file-name')(entry.name)
-      : span(entry.name);
+      : span.class('file-entry-name-primary')(entry.name);
+    const nameSpan = entry._search_path_label
+      ? span.class('file-entry-name-stack')(
+          nameText,
+          span.class('file-entry-path-context')(entry._search_path_label),
+        )
+      : nameText;
 
     const modifiedCell = isDeleted
       ? td(span.class('text-danger')(`Deleted ${formatDate(entry._deleted_at)}`))
@@ -1034,6 +1099,7 @@ class AeorFileBrowserBase extends HTMLElement {
     let rowBuilder = tr
       .class(rowClassName)
       .dataName(entry.name)
+      .dataPath(this._entryPath(tab, entry))
       .dataType(String(entry.entry_type));
     if (isDeleted) rowBuilder = rowBuilder.dataDeleted('true');
 
@@ -1056,7 +1122,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _renderListViewFor(tab, entries) {
     const tbodyEl = tbody();
-    const rows = entries.map((entry) => this._renderListRow(entry));
+    const rows = entries.map((entry) => this._renderListRow(entry, tab));
 
     const tableEl = table(
       thead(
@@ -1090,7 +1156,7 @@ class AeorFileBrowserBase extends HTMLElement {
       if (!isDir && (isImageFile(entry.name) || isVideoFile(entry.name))) {
         // Image/video: show a loading placeholder, async-load with auth later
         const thumbType = isVideoFile(entry.name) ? 'video' : 'image';
-        const thumbPath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+        const thumbPath = this._entryPath(tab, entry);
         thumbnailEl = div
           .class('grid-card-thumbnail')
           .dataThumbPath(thumbPath)
@@ -1105,6 +1171,7 @@ class AeorFileBrowserBase extends HTMLElement {
       let cardBuilder = div
         .class('grid-card file-entry' + (isDeleted ? ' deleted-card' : ''))
         .dataName(entry.name)
+        .dataPath(this._entryPath(tab, entry))
         .dataType(String(entry.entry_type));
       if (isDeleted) cardBuilder = cardBuilder.dataDeleted('true');
 
@@ -1121,9 +1188,10 @@ class AeorFileBrowserBase extends HTMLElement {
       const cardEl = cardBuilder(
         statusDot,
         thumbnailEl,
-        div.class('grid-card-name' + (isDeleted ? ' deleted-name' : '')).title(entry.name)(
+        div.class('grid-card-name' + (isDeleted ? ' deleted-name' : '')).title(entry._search_path_label ? `${entry.name} · ${entry._search_path_label}` : entry.name)(
           truncatedName,
         ),
+        entry._search_path_label ? div.class('grid-card-path')(entry._search_path_label) : null,
         div.class('grid-card-meta')(
           isDeleted ? span.class('text-danger')('Deleted') : size,
         ),
@@ -1253,6 +1321,18 @@ class AeorFileBrowserBase extends HTMLElement {
   _renderBreadcrumbs(tab) {
     const path = tab.path;
     const labelText = this.rootLabel();
+    if (this._isSearchPath(path)) {
+      const origin = tab.search_origin_path || '/';
+      return div.class('breadcrumbs breadcrumbs-search')(
+        span.class('breadcrumb-segment').dataPath(origin)(labelText),
+        span.class('breadcrumb-separator')('/'),
+        span.class('breadcrumb-segment breadcrumb-search-root').dataPath(this._searchPath())('@search'),
+        span.class('breadcrumb-search-term')(
+          tab.search_query ? `Search: ${tab.search_query}` : 'Search',
+        ),
+      ).build(document);
+    }
+
     const segments = path.split('/').filter((s) => s.length > 0);
 
     const children = [
@@ -1310,24 +1390,7 @@ class AeorFileBrowserBase extends HTMLElement {
       // Update breadcrumbs + header buttons in place
       const headerEl = listingArea.querySelector('.tab-header');
       if (headerEl) {
-        const configActions = this._getConfigActions(tab);
-        headerEl.textContent = '';
-
-        const headerActions = div.class('page-header-actions')(
-          configActions ? div.class('config-actions-bar')(...configActions) : null,
-          button.class('secondary small header-paste-btn hidden')('Paste'),
-          // Subclass-injected actions, same as the full render path.
-          this.directoryActions(tab),
-          this._isRoot() ? button.class('success small snapshot-button')('Snapshot') : null,
-          this._hasPermission('c') ? button.class('secondary small new-folder-button')('New Folder') : null,
-          this._hasPermission('c') ? button.class('primary small upload-button')('Upload') : null,
-          this._hasPermission('c') ? input.type('file').class('upload-input hidden').multiple('')() : null,
-        ).build(document);
-
-        const pageHeader = div.class('page-header')().build(document);
-        pageHeader.appendChild(this._renderBreadcrumbs(tab));
-        pageHeader.appendChild(headerActions);
-        headerEl.appendChild(pageHeader);
+        headerEl.replaceWith(this._renderTabHeader(tab));
       }
 
       // Update listing content only (toolbar is preserved)
@@ -1397,7 +1460,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     try {
       const limit = Math.max(tab.page_size || 100, tab.entries.length || 0);
-      const data = await this.browse(requestPath, limit, 0, this._sortField, this._sortOrder);
+      const data = await this._loadTabEntries(tab, requestPath, limit, 0);
       if (tab.path !== requestPath || tab._backgroundListingRequestId !== requestId) return;
       if (tab.id !== this._active_tab_id) {
         tab._needsRefresh = true;
@@ -1414,13 +1477,13 @@ class AeorFileBrowserBase extends HTMLElement {
       }
 
       let patched = false;
-      if (this._showHidden) {
+      if (this._showHidden && !this._isSearchPath(tab.path)) {
         await this._fetchDeletedEntries(tab);
       } else {
         tab._deletedEntries = [];
       }
 
-      if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
+      if (tab.entries.length === 0 && !this._isSearchPath(tab.path) && typeof this.getSharedWithMe === 'function') {
         await this._showSharedAncestors(tab);
       }
 
@@ -1487,15 +1550,15 @@ class AeorFileBrowserBase extends HTMLElement {
 
     const oldRows = new Map();
     tbodyEl.querySelectorAll(':scope > .file-entry').forEach((row) => {
-      oldRows.set(row.dataset.name, row);
+      oldRows.set(row.dataset.path || row.dataset.name, row);
     });
 
     const nextRows = [];
     for (const entry of entries) {
       const fingerprint = this._entryFingerprint(entry);
-      let row = oldRows.get(entry.name);
+      let row = oldRows.get(this._entryKey(tab, entry));
       if (!row || row._aeorEntryFingerprint !== fingerprint) {
-        row = this._renderListRow(entry);
+        row = this._renderListRow(entry, tab);
       }
       nextRows.push(row);
     }
@@ -1510,13 +1573,13 @@ class AeorFileBrowserBase extends HTMLElement {
 
     const oldCards = new Map();
     gridEl.querySelectorAll(':scope > .file-entry').forEach((card) => {
-      oldCards.set(card.dataset.name, card);
+      oldCards.set(card.dataset.path || card.dataset.name, card);
     });
 
     const nextCards = [];
     for (const entry of entries) {
       const fingerprint = this._entryFingerprint(entry);
-      let card = oldCards.get(entry.name);
+      let card = oldCards.get(this._entryKey(tab, entry));
       if (!card || card._aeorEntryFingerprint !== fingerprint) {
         const tmpTab = { ...tab, entries: [entry] };
         const rendered = this._renderGridViewFor(tmpTab, [entry]);
@@ -1531,21 +1594,21 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _pruneSelectionToEntries(tab) {
     if (!tab.selectedEntries || tab.selectedEntries.size === 0) return;
-    const names = new Set([
-      ...tab.entries.map((entry) => entry.name),
-      ...(tab._deletedEntries || []).map((entry) => entry.name),
+    const paths = new Set([
+      ...tab.entries.map((entry) => this._entryPath(tab, entry)),
+      ...(tab._deletedEntries || []).map((entry) => this._entryPath(tab, entry)),
     ]);
-    const prefix = tab.path.replace(/\/$/, '') + '/';
     for (const selected of [...tab.selectedEntries]) {
-      if (!selected.startsWith(prefix)) continue;
-      const name = selected.slice(prefix.length);
-      if (!names.has(name)) tab.selectedEntries.delete(selected);
+      if (!paths.has(selected)) tab.selectedEntries.delete(selected);
     }
   }
 
   _refreshPreviewEntry(tab) {
     if (!tab.preview_entry) return;
+    const previewPath = this._entryPath(tab, tab.preview_entry);
     const replacement =
+      tab.entries.find((entry) => this._entryPath(tab, entry) === previewPath) ||
+      (tab._deletedEntries || []).find((entry) => this._entryPath(tab, entry) === previewPath) ||
       tab.entries.find((entry) => entry.name === tab.preview_entry.name) ||
       (tab._deletedEntries || []).find((entry) => entry.name === tab.preview_entry.name);
     if (!replacement) {
@@ -1587,7 +1650,7 @@ class AeorFileBrowserBase extends HTMLElement {
       titleInput.classList.add('no-pointer-events');
 
       // Fetch version history to determine if we have snapshots
-      const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+      const filePath = this._entryPath(tab, entry);
       let versions = [];
       try {
         versions = await this._fetchVersionHistory(filePath) || [];
@@ -1734,7 +1797,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const previewEl = contentEl.querySelector(componentName);
     if (previewEl) {
       const contentType = resolvePreviewContentType(entry.name, entry.content_type);
-      const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+      const filePath = this._entryPath(tab, entry);
       const previewSrc = await this.getPreviewSrc(filePath, contentType);
       previewEl.setAttribute('src', previewSrc);
       previewEl.setAttribute('filename', entry.name);
@@ -1751,7 +1814,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // System file warning
     const warningEl = panel.querySelector('.preview-warning');
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const filePath = this._entryPath(tab, entry);
     if (warningEl) {
       const isSystemFile = /\/\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(filePath) || /^\.(config|system|indexes|permissions|functions|conflicts)(\/|$)/.test(entry.name);
       if (isSystemFile) {
@@ -1927,6 +1990,46 @@ class AeorFileBrowserBase extends HTMLElement {
     this._hydrateTabView();
   }
 
+  _bindSearchEvents(container, tab) {
+    const searchInput = container.querySelector('.file-browser-search-input');
+    if (!searchInput || searchInput._aeorSearchBound) return;
+    searchInput._aeorSearchBound = true;
+
+    const clearButton = container.querySelector('.file-browser-search-clear');
+
+    searchInput.addEventListener('input', () => {
+      if (!tab) return;
+
+      tab.search_query = searchInput.value;
+      if (clearButton) clearButton.classList.toggle('hidden', !searchInput.value);
+
+      clearTimeout(this._searchDebounceTimer);
+      if (!searchInput.value.trim()) {
+        this._clearSearch(tab);
+        return;
+      }
+
+      this._searchDebounceTimer = setTimeout(() => {
+        this._runSearch(searchInput.value, tab);
+      }, 350);
+    });
+
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      clearTimeout(this._searchDebounceTimer);
+      this._runSearch(searchInput.value, tab);
+    });
+
+    if (clearButton) {
+      clearButton.addEventListener('click', () => {
+        clearTimeout(this._searchDebounceTimer);
+        searchInput.value = '';
+        this._clearSearch(tab);
+      });
+    }
+  }
+
   _bindTabContentEvents(tabId) {
     const container = this.querySelector(`#tab-content-${tabId}`);
     if (!container) return;
@@ -1990,6 +2093,8 @@ class AeorFileBrowserBase extends HTMLElement {
   }
 
   _bindListingEvents(container, tab, tabId) {
+    this._bindSearchEvents(container, tab);
+
     // Background right-click anywhere in the tab content (not on a file entry)
     // Prevents default context menu and shows paste menu when clipboard has items
     container.addEventListener('contextmenu', (event) => {
@@ -2048,9 +2153,12 @@ class AeorFileBrowserBase extends HTMLElement {
       el.addEventListener('click', (event) => {
         const entryName = el.dataset.name;
         const entryType = parseInt(el.dataset.type, 10);
-        const entryPath = tab.path.replace(/\/$/, '') + '/' + entryName;
+        const entryPath = this._entryPathFromElement(tab, el);
         const visibleEntries = this._getVisibleEntries(tab);
-        const entryIndex = visibleEntries.findIndex((e) => e.name === entryName);
+        const entry = visibleEntries.find((e) => this._entryPath(tab, e) === entryPath)
+          || visibleEntries.find((e) => e.name === entryName)
+          || null;
+        const entryIndex = visibleEntries.findIndex((e) => this._entryPath(tab, e) === entryPath);
         const isCtrl = event.ctrlKey || event.metaKey;
         const isShift = event.shiftKey;
 
@@ -2062,7 +2170,7 @@ class AeorFileBrowserBase extends HTMLElement {
           this._updateSelectionVisual(tab);
 
           // Preview: files get full preview, directories get version history only
-          tab.preview_entry = visibleEntries.find((e) => e.name === entryName) || null;
+          tab.preview_entry = entry;
           tab.preview_component = null;
           if (entryType !== ENTRY_TYPE_DIR) {
             this._loadPreview();
@@ -2081,7 +2189,7 @@ class AeorFileBrowserBase extends HTMLElement {
         } else if (isShift) {
           // Shift+Click — range select using current visible entries
           const anchorIndex = (tab.lastSelectedAnchor)
-            ? visibleEntries.findIndex((e) => tab.path.replace(/\/$/, '') + '/' + e.name === tab.lastSelectedAnchor)
+            ? visibleEntries.findIndex((e) => this._entryPath(tab, e) === tab.lastSelectedAnchor)
             : 0;
           const anchor = (anchorIndex >= 0) ? anchorIndex : 0;
           const start = Math.min(anchor, entryIndex);
@@ -2089,7 +2197,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
           for (let i = start; i <= end; i++) {
             if (visibleEntries[i])
-              tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + visibleEntries[i].name);
+              tab.selectedEntries.add(this._entryPath(tab, visibleEntries[i]));
           }
           this._updateSelectionVisual(tab);
         }
@@ -2099,15 +2207,17 @@ class AeorFileBrowserBase extends HTMLElement {
       el.addEventListener('dblclick', () => {
         const entryType = parseInt(el.dataset.type, 10);
         if (entryType === ENTRY_TYPE_DIR) {
-          const entryPath = tab.path.replace(/\/$/, '') + '/' + el.dataset.name;
-          this._navigateTo(entryPath + '/');
+          const entryPath = this._entryPathFromElement(tab, el);
+          this._navigateTo(entryPath.endsWith('/') ? entryPath : entryPath + '/');
         }
       });
 
       // Context menu (files and directories)
       el.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        const entry = tab.entries.find((e) => e.name === el.dataset.name);
+        const entryPath = this._entryPathFromElement(tab, el);
+        const entry = tab.entries.find((e) => this._entryPath(tab, e) === entryPath)
+          || tab.entries.find((e) => e.name === el.dataset.name);
         if (!entry) return;
 
         this._showContextMenu(event.clientX, event.clientY, entry);
@@ -2120,14 +2230,17 @@ class AeorFileBrowserBase extends HTMLElement {
     this.setAttribute('tabindex', '0');
     const keydownHandler = (event) => {
       if (tab.id !== this._active_tab_id) return;
+      if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+      const isSearchMode = this._isSearchPath(tab.path);
 
       if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
         event.preventDefault();
         for (const entry of tab.entries)
-          tab.selectedEntries.add(tab.path.replace(/\/$/, '') + '/' + entry.name);
+          tab.selectedEntries.add(this._entryPath(tab, entry));
 
         if (tab.entries.length > 0)
-          tab.lastSelectedAnchor = tab.path.replace(/\/$/, '') + '/' + tab.entries[tab.entries.length - 1].name;
+          tab.lastSelectedAnchor = this._entryPath(tab, tab.entries[tab.entries.length - 1]);
 
         this._updateSelectionVisual(tab);
       } else if (event.key === 'Escape') {
@@ -2139,17 +2252,17 @@ class AeorFileBrowserBase extends HTMLElement {
           this._setClipboard('copy', [...tab.selectedEntries]);
           if (window.aeorToast) window.aeorToast('Files copied!', 'success');
         }
-      } else if ((event.ctrlKey || event.metaKey) && event.key === 'x') {
+      } else if (!isSearchMode && (event.ctrlKey || event.metaKey) && event.key === 'x') {
         if (tab.selectedEntries.size > 0) {
           event.preventDefault();
           this._setClipboard('cut', [...tab.selectedEntries]);
           this._updateTabContent(tab.id);
           if (window.aeorToast) window.aeorToast('Files cut!', 'success');
         }
-      } else if ((event.ctrlKey || event.metaKey) && event.key === 'v' && event.shiftKey) {
+      } else if (!isSearchMode && (event.ctrlKey || event.metaKey) && event.key === 'v' && event.shiftKey) {
         event.preventDefault();
         this._pasteAsSymlinks();
-      } else if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      } else if (!isSearchMode && (event.ctrlKey || event.metaKey) && event.key === 'v') {
         event.preventDefault();
         this._pasteClipboard();
       } else if (event.key === 'Delete') {
@@ -2186,7 +2299,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Drop zone — drag files from OS into the listing to upload
     const listing = container.querySelector('.tab-listing');
-    if (listing) {
+    if (listing && !this._isSearchPath(tab.path)) {
       let dragCounter = 0;
 
       listing.addEventListener('dragover', (event) => {
@@ -2276,6 +2389,8 @@ class AeorFileBrowserBase extends HTMLElement {
       preview_entry:     null,
       preview_component: null,
       preview_height:    null,
+      search_query:      '',
+      search_origin_path: null,
       selectedEntries:   new Set(),
       lastSelectedAnchor: null,
     });
@@ -2294,6 +2409,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Show new tab content
     this._active_tab_id = tabId;
+    this._syncSearchInputToActiveTab();
 
     const newContainer = this.querySelector(`#tab-content-${tabId}`);
     if (newContainer) newContainer.classList.remove('hidden');
@@ -2351,6 +2467,9 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab) return;
     (tab._gridBlobUrls || []).forEach(u => URL.revokeObjectURL(u));
     tab._gridBlobUrls = [];
+    if (!this._isSearchPath(path)) {
+      tab.search_origin_path = path || '/';
+    }
     tab.path = path;
     tab.preview_entry = null;
     tab.selectedEntries.clear();
@@ -2380,7 +2499,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Toggle .selected class on file entries (match by full path)
     container.querySelectorAll('.file-entry').forEach((el) => {
-      const entryPath = tab.path.replace(/\/$/, '') + '/' + el.dataset.name;
+      const entryPath = this._entryPathFromElement(tab, el);
       if (tab.selectedEntries.has(entryPath))
         el.classList.add('selected');
       else
@@ -2399,20 +2518,17 @@ class AeorFileBrowserBase extends HTMLElement {
         const allEntries = [...tab.entries, ...(tab._deletedEntries || [])];
         const selectedPaths = [...tab.selectedEntries];
         const hasDeletedSelected = selectedPaths.some((path) => {
-          const name = path.split('/').pop();
-          return allEntries.some((e) => e.name === name && e._deleted);
+          return allEntries.some((e) => this._entryPath(tab, e) === path && e._deleted);
         });
         const allDeleted = selectedPaths.every((path) => {
-          const name = path.split('/').pop();
-          return allEntries.some((e) => e.name === name && e._deleted);
+          return allEntries.some((e) => this._entryPath(tab, e) === path && e._deleted);
         });
 
         // Resolve each selected path to its entry so we can inspect
         // per-entry effective_permissions (mixed folders may contain
         // some deletable + some not).
         const selectedEntries = selectedPaths.map((path) => {
-          const name = path.split('/').pop();
-          return allEntries.find((e) => e.name === name) || null;
+          return allEntries.find((e) => this._entryPath(tab, e) === path) || null;
         }).filter(Boolean);
 
         // Helper: true when EVERY selected entry grants the given flag
@@ -2447,7 +2563,10 @@ class AeorFileBrowserBase extends HTMLElement {
         const canUpdateAll = allCan('u');
         const cutBtn = leftSlot.querySelector('.selection-cut');
         if (cutBtn) {
-          cutBtn.classList.toggle('hidden', !(canUpdateAll && canDeleteAll));
+          cutBtn.classList.toggle(
+            'hidden',
+            this._isSearchPath(tab.path) || !(canUpdateAll && canDeleteAll),
+          );
         }
 
       } else {
@@ -2495,7 +2614,7 @@ class AeorFileBrowserBase extends HTMLElement {
   async _deleteInstant(entry) {
     const tab = this._activeTab();
     if (!tab) return;
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const filePath = this._entryPath(tab, entry);
     try {
       await this.deletePath(filePath);
       this._fetchListing();
@@ -2543,7 +2662,7 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab) return;
     const paths = tab.selectedEntries.size > 0
       ? [...tab.selectedEntries]
-      : [tab.path.replace(/\/$/, '') + '/' + contextEntry.name];
+      : [this._entryPath(tab, contextEntry)];
     this._setClipboard('cut', paths);
     this._updateTabContent(tab.id);
     if (window.aeorToast) window.aeorToast('Files cut!', 'success');
@@ -2554,7 +2673,7 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab) return;
     const paths = tab.selectedEntries.size > 0
       ? [...tab.selectedEntries]
-      : [tab.path.replace(/\/$/, '') + '/' + contextEntry.name];
+      : [this._entryPath(tab, contextEntry)];
     this._setClipboard('copy', paths);
     if (window.aeorToast) window.aeorToast('Files copied!', 'success');
   }
@@ -2640,7 +2759,7 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     try {
-      const data = await this.browse(requestPath, tab.page_size || 100, 0, this._sortField, this._sortOrder);
+      const data = await this._loadTabEntries(tab, requestPath, tab.page_size || 100, 0);
       if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
@@ -2671,7 +2790,7 @@ class AeorFileBrowserBase extends HTMLElement {
     }
 
     // Refresh deleted entries if eye toggle is on
-    if (this._showHidden) {
+    if (this._showHidden && !this._isSearchPath(tab.path)) {
       await this._fetchDeletedEntries(tab);
     } else {
       tab._deletedEntries = [];
@@ -2681,7 +2800,7 @@ class AeorFileBrowserBase extends HTMLElement {
     // tree and show ancestor entries for navigation BEFORE clearing loading
     // and rendering. Rendering first makes the no-access card flash as a
     // fake loading state while this secondary access lookup is still pending.
-    if (tab.entries.length === 0 && typeof this.getSharedWithMe === 'function') {
+    if (tab.entries.length === 0 && !this._isSearchPath(tab.path) && typeof this.getSharedWithMe === 'function') {
       await this._showSharedAncestors(tab);
     }
 
@@ -2841,7 +2960,7 @@ class AeorFileBrowserBase extends HTMLElement {
     this._updateTabContent(tab.id);
 
     try {
-      const data = await this.browse(requestPath, tab.page_size || 100, tab.entries.length, this._sortField, this._sortOrder);
+      const data = await this._loadTabEntries(tab, requestPath, tab.page_size || 100, tab.entries.length);
       if (tab.path !== requestPath || tab._listingRequestId !== requestId) return;
       const newEntries = data.entries || [];
       for (const entry of newEntries) {
@@ -2914,8 +3033,9 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab || !tab.preview_entry) return;
 
     const oldName = tab.preview_entry.name;
-    const fromPath = tab.path.replace(/\/$/, '') + '/' + oldName;
-    const toPath = tab.path.replace(/\/$/, '') + '/' + newName;
+    const fromPath = this._entryPath(tab, tab.preview_entry);
+    const slash = fromPath.lastIndexOf('/');
+    const toPath = (slash >= 0 ? fromPath.slice(0, slash + 1) : '/') + newName;
 
     try {
       await this.renamePath(fromPath, toPath);
@@ -2941,7 +3061,7 @@ class AeorFileBrowserBase extends HTMLElement {
     if (!tab || !tab.preview_entry) return;
 
     const entry = tab.preview_entry;
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const filePath = this._entryPath(tab, entry);
 
     switch (action) {
       case 'delete': {
@@ -3952,6 +4072,9 @@ class AeorFileBrowserBase extends HTMLElement {
     const existing = this.querySelector('.context-menu');
     if (existing) existing.remove();
 
+    const tab = this._activeTab();
+    if (tab && this._isSearchPath(tab.path)) return;
+
     const clipboard = this._getClipboard();
     if (!clipboard) return; // Nothing to paste — no menu needed
 
@@ -3996,6 +4119,7 @@ class AeorFileBrowserBase extends HTMLElement {
     const mod = isMac ? 'Cmd' : 'Ctrl';
     const clipboard = this._getClipboard();
     const tab = this._activeTab();
+    const isSearchMode = tab && this._isSearchPath(tab.path);
 
     const { hr } = elements;
     const menuItem = (action, text, hotkey, extraClass = '') =>
@@ -4007,9 +4131,9 @@ class AeorFileBrowserBase extends HTMLElement {
     const menu = div.class('context-menu')(
       menuItem('preview', 'Preview'),
       this._hasPermission('y') ? menuItem('share', 'Share') : null,
-      this._hasPermission('u') ? menuItem('cut', 'Cut ', `${mod}+X`) : null,
+      this._hasPermission('u') && !isSearchMode ? menuItem('cut', 'Cut ', `${mod}+X`) : null,
       menuItem('copy', 'Copy ', `${mod}+C`),
-      clipboard ? menuItem('paste', 'Paste ', `${mod}+V`) : null,
+      clipboard && !isSearchMode ? menuItem('paste', 'Paste ', `${mod}+V`) : null,
       this._hasPermission('d') ? hr.class('context-menu-separator')() : null,
       this._hasPermission('d') ? menuItem('delete-instant', 'Delete ', 'Del', 'context-menu-danger') : null,
     ).build(document);
@@ -4034,7 +4158,7 @@ class AeorFileBrowserBase extends HTMLElement {
           this._loadPreview();
         } else if (action === 'share') {
           if (tab) {
-            let filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+            let filePath = this._entryPath(tab, entry);
             if (entry.entry_type === ENTRY_TYPE_DIR) filePath += '/';
             this._showShareModal([filePath]);
           }
@@ -4065,6 +4189,133 @@ class AeorFileBrowserBase extends HTMLElement {
 
   _activeTab() {
     return this._tabs.find((t) => t.id === this._active_tab_id) || null;
+  }
+
+  _syncSearchInputToActiveTab() {
+    const tab = this._activeTab();
+    const container = tab ? this.querySelector(`#tab-content-${tab.id}`) : null;
+    const inputEl = container && container.querySelector('.file-browser-search-input');
+    const clearEl = container && container.querySelector('.file-browser-search-clear');
+    if (!inputEl) return;
+    const value = tab.search_query || '';
+    inputEl.value = value;
+    inputEl.disabled = false;
+    if (clearEl) {
+      clearEl.classList.toggle('hidden', !value);
+      clearEl.disabled = false;
+    }
+  }
+
+  _searchPath() {
+    return '/@search/';
+  }
+
+  _isSearchPath(path) {
+    return String(path || '').replace(/\/+/g, '/').startsWith('/@search');
+  }
+
+  _entryPath(tab, entry) {
+    if (entry && entry._actual_path) return entry._actual_path;
+    if (entry && entry.path && this._isSearchPath(tab && tab.path)) return entry.path;
+    const base = (tab && tab.path) ? tab.path : '/';
+    const name = entry && entry.name ? entry.name : '';
+    return base.replace(/\/$/, '') + '/' + name;
+  }
+
+  _entryPathFromElement(tab, el) {
+    if (el && el.dataset && el.dataset.path) return el.dataset.path;
+    return (tab.path || '/').replace(/\/$/, '') + '/' + (el?.dataset?.name || '');
+  }
+
+  _entryKey(tab, entry) {
+    return this._entryPath(tab, entry);
+  }
+
+  _normalizeSearchEntry(entry) {
+    if (!entry) return entry;
+    const actualPath = entry._actual_path || entry.path || null;
+    if (!actualPath) return entry;
+    return {
+      ...entry,
+      _actual_path: actualPath.startsWith('/') ? actualPath : '/' + actualPath,
+      _search_path_label: entry._search_path_label || entry.display_path || this._parentPathLabel(actualPath),
+    };
+  }
+
+  _parentPathLabel(path) {
+    const clean = String(path || '/').replace(/\/+$/, '');
+    const idx = clean.lastIndexOf('/');
+    if (idx <= 0) return '/';
+    return clean.slice(0, idx + 1);
+  }
+
+  async _loadTabEntries(tab, path, limit, offset) {
+    if (this._isSearchPath(path)) {
+      const query = (tab.search_query || '').trim();
+      if (!query) return { entries: [], total: 0 };
+      const data = await this.search(query, limit, offset, this._sortField, this._sortOrder);
+      return {
+        ...data,
+        entries: (data.entries || []).map((entry) => this._normalizeSearchEntry(entry)),
+      };
+    }
+    return this.browse(path, limit, offset, this._sortField, this._sortOrder);
+  }
+
+  _runSearch(value, tab = this._activeTab()) {
+    if (!tab) return;
+    const query = String(value || '').trim();
+    tab.search_query = value || '';
+    if (!query) {
+      this._clearSearch(tab);
+      return;
+    }
+
+    if (!this._isSearchPath(tab.path)) {
+      tab.search_origin_path = tab.path || '/';
+    }
+    tab.path = this._searchPath();
+    tab.entries = [];
+    tab.total = null;
+    tab._deletedEntries = [];
+    tab.loading = true;
+    tab.preview_entry = null;
+    tab.preview_component = null;
+    tab.selectedEntries.clear();
+    tab.lastSelectedAnchor = null;
+    this._updateSelectionVisual(tab);
+    this._saveState();
+    this._updateTabBarLabel(tab);
+    this._updateTabContent(tab.id);
+    this._fetchListing();
+  }
+
+  _clearSearch(tab = this._activeTab()) {
+    if (!tab) return;
+    const wasSearchPath = this._isSearchPath(tab.path);
+    tab.search_query = '';
+    if (wasSearchPath) {
+      tab.path = tab.search_origin_path || '/';
+      tab.entries = [];
+      tab.total = null;
+      tab._deletedEntries = [];
+      tab.loading = true;
+    }
+    tab.search_origin_path = null;
+    tab.preview_entry = null;
+    tab.preview_component = null;
+    tab.selectedEntries.clear();
+    tab.lastSelectedAnchor = null;
+    this._updateSelectionVisual(tab);
+    this._saveState();
+    this._updateTabBarLabel(tab);
+    this._updateTabContent(tab.id);
+    this._fetchListing();
+    const container = this.querySelector(`#tab-content-${tab.id}`);
+    const inputEl = container && container.querySelector('.file-browser-search-input');
+    const clearEl = container && container.querySelector('.file-browser-search-clear');
+    if (inputEl) inputEl.value = '';
+    if (clearEl) clearEl.classList.add('hidden');
   }
 
   _truncate(str, max) {
@@ -4099,7 +4350,7 @@ class AeorFileBrowserBase extends HTMLElement {
 
     // Fetch sorted data
     try {
-      const data = await this.browse(tab.path, tab.page_size || 100, 0, this._sortField, this._sortOrder);
+      const data = await this._loadTabEntries(tab, tab.path, tab.page_size || 100, 0);
       tab.entries = data.entries || [];
       tab.total = (data.total != null) ? data.total : tab.entries.length;
     } catch (error) {
@@ -4215,7 +4466,7 @@ class AeorFileBrowserBase extends HTMLElement {
       await this._fetchListing();
       const restored = tab.entries.find((e) => e.name === restoredName);
       if (restored) {
-        const restoredPath = tab.path.replace(/\/$/, '') + '/' + restoredName;
+        const restoredPath = this._entryPath(tab, restored);
         tab.selectedEntries.clear();
         tab.selectedEntries.add(restoredPath);
         tab.preview_entry = restored;
@@ -4265,7 +4516,7 @@ class AeorFileBrowserBase extends HTMLElement {
         versions = [];
       }
     } else {
-      const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+      const filePath = this._entryPath(tab, entry);
       try {
         versions = await this._fetchVersionHistory(filePath);
       } catch (_) {
@@ -4361,7 +4612,7 @@ class AeorFileBrowserBase extends HTMLElement {
   async _previewAtSnapshot(panel, tab, entry, snapshot, versionInfo) {
     const contentEl = panel.querySelector('.preview-content');
     if (!contentEl) return;
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const filePath = this._entryPath(tab, entry);
     // Use version info's content_type if available (deleted files have null content_type)
     const contentType = resolvePreviewContentType(
       entry.name,
@@ -4396,7 +4647,7 @@ class AeorFileBrowserBase extends HTMLElement {
    * Confirm and restore a file to a specific snapshot version.
    */
   async _confirmRestoreVersion(tab, entry, snapshot) {
-    const filePath = tab.path.replace(/\/$/, '') + '/' + entry.name;
+    const filePath = this._entryPath(tab, entry);
     try {
       await this._createSnapshot('auto-pre-restore ' + new Date().toISOString().replace('T', ' ').replace('Z', '')).catch(() => {});
       await this._restoreFromSnapshot(filePath, snapshot);

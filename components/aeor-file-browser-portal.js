@@ -160,6 +160,53 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     };
   }
 
+  async search(query, limit, offset) {
+    const response = await window.api('/files/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        path: '/',
+        limit: limit || 100,
+        offset: offset || 0,
+      }),
+    });
+    if (!response.ok) {
+      const error = new Error(`Search failed: ${response.status}`);
+      error.status = response.status;
+      error.category = response.status >= 500 ? 'upstream_server' : 'upstream_rejected';
+      throw error;
+    }
+
+    const data = await response.json();
+    const items = data.items || data.results || [];
+    return {
+      entries: items.map((item) => {
+        const path = item.path || '/';
+        const clean = path.replace(/\/+$/, '');
+        const name = clean.split('/').filter(Boolean).pop() || path;
+        const parent = clean.includes('/')
+          ? (clean.slice(0, clean.lastIndexOf('/') + 1) || '/')
+          : '/';
+        return {
+          name,
+          path,
+          _actual_path: path,
+          _search_path_label: parent,
+          entry_type: item.entry_type || (path.endsWith('/') ? ENTRY_TYPE_DIR : 2),
+          size: item.size || 0,
+          content_type: item.content_type || 'application/octet-stream',
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          effective_permissions: item.effective_permissions || null,
+        };
+      }),
+      total: (data.total_count != null)
+        ? data.total_count
+        : ((data.total != null) ? data.total : items.length),
+    };
+  }
+
   fileUrl(path) {
     return `/files${path}`;
   }
@@ -557,7 +604,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (action === 'share') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
-      let filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
+      let filePath = this._entryPath(tab, tab.preview_entry);
       // Directories need trailing slash for wildcard glob in share
       if (tab.preview_entry.entry_type === ENTRY_TYPE_DIR) filePath += '/';
       this._showShareModal([filePath]);
@@ -566,7 +613,7 @@ export class AeorFileBrowserPortal extends AeorFileBrowserBase {
     if (action === 'download') {
       const tab = this._activeTab();
       if (!tab || !tab.preview_entry) return;
-      const filePath = tab.path.replace(/\/$/, '') + '/' + tab.preview_entry.name;
+      const filePath = this._entryPath(tab, tab.preview_entry);
       try {
         // Fetch with auth, then download via blob URL
         const response = await window.api(this.fileUrl(filePath));
